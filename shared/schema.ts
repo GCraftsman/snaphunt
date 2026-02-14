@@ -46,6 +46,7 @@ export const scavengerItems = pgTable("scavenger_items", {
   description: text("description").notNull(),
   points: integer("points").notNull().default(100),
   sortOrder: integer("sort_order").notNull().default(0),
+  verificationMode: varchar("verification_mode", { length: 20 }).notNull().default("ai"),
 });
 
 export const submissions = pgTable("submissions", {
@@ -57,6 +58,8 @@ export const submissions = pgTable("submissions", {
   photoData: text("photo_data").notNull(),
   verified: boolean("verified").notNull().default(false),
   aiResponse: text("ai_response"),
+  status: varchar("status", { length: 20 }).notNull().default("completed"),
+  proctorFeedback: text("proctor_feedback"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 

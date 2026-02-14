@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, List, Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft } from "lucide-react";
+import { Trophy, List, Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot } from "lucide-react";
 import { motion } from "framer-motion";
 import Confetti from "react-confetti";
 import { useLocation } from "wouter";
@@ -18,7 +18,7 @@ function useWindowSizeValues() {
 }
 
 export default function Game() {
-  const { items, teams, currentUser, timeRemaining, submitPhoto, completedSubmissions, status } = useGame();
+  const { items, teams, currentUser, timeRemaining, submitPhoto, completedSubmissions, pendingSubmissions, rejectedSubmissions, status } = useGame();
   const [activeTab, setActiveTab] = useState("list");
   const [selectedItem, setSelectedItem] = useState<{ id: number; description: string; points: number } | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -43,6 +43,14 @@ export default function Game() {
     return completedSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
   };
 
+  const isItemPending = (itemId: number) => {
+    return pendingSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
+  };
+
+  const getItemRejection = (itemId: number) => {
+    return rejectedSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
+  };
+
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -62,6 +70,14 @@ export default function Game() {
     const result = await submitPhoto(selectedItem.id, capturedImage);
 
     setIsSubmitting(false);
+
+    if (result.status === "pending") {
+      setSelectedItem(null);
+      setCapturedImage(null);
+      setSubmitResult(null);
+      return;
+    }
+
     setSubmitResult(result);
 
     if (result.verified) {
@@ -115,11 +131,19 @@ export default function Game() {
           <TabsContent value="list" className="space-y-3">
             {items.map(item => {
               const completed = isItemCompleted(item.id);
+              const pending = isItemPending(item.id);
+              const rejection = getItemRejection(item.id);
+              const disabled = completed || pending;
               return (
                 <Card
                   key={item.id}
-                  className={`border transition-all ${completed ? "bg-green-500/10 border-green-500/30 opacity-70" : "bg-card border-white/5 hover:border-primary/50 active:scale-[0.98]"}`}
-                  onClick={() => !completed && setSelectedItem(item)}
+                  className={`border transition-all ${
+                    completed ? "bg-green-500/10 border-green-500/30 opacity-70" :
+                    pending ? "bg-yellow-500/10 border-yellow-500/30 opacity-80" :
+                    rejection ? "bg-card border-destructive/30" :
+                    "bg-card border-white/5 hover:border-primary/50 active:scale-[0.98]"
+                  }`}
+                  onClick={() => !disabled && setSelectedItem(item)}
                   data-testid={`card-item-${item.id}`}
                 >
                   <CardContent className="p-4 flex items-center gap-4">
@@ -128,17 +152,34 @@ export default function Game() {
                         <span className={`font-medium text-lg ${completed ? "line-through text-muted-foreground" : ""}`}>
                           {item.description}
                         </span>
-                        <Badge variant={completed ? "secondary" : "outline"} className={completed ? "bg-green-500 text-black" : "border-primary text-primary"}>
-                          {item.points} PTS
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          {item.verificationMode === "proctor" && (
+                            <Badge variant="outline" className="border-yellow-400/30 text-yellow-400 text-[10px]">
+                              <Eye className="w-2.5 h-2.5 mr-0.5" /> Proctor
+                            </Badge>
+                          )}
+                          <Badge variant={completed ? "secondary" : "outline"} className={completed ? "bg-green-500 text-black" : "border-primary text-primary"}>
+                            {item.points} PTS
+                          </Badge>
+                        </div>
                       </div>
                       {completed && (
                         <div className="text-xs text-green-400 flex items-center gap-1 mt-2">
                           <Check className="w-3 h-3" /> Completed by team
                         </div>
                       )}
+                      {pending && (
+                        <div className="text-xs text-yellow-400 flex items-center gap-1 mt-2">
+                          <Clock className="w-3 h-3" /> Waiting for proctor review
+                        </div>
+                      )}
+                      {rejection && !completed && !pending && (
+                        <div className="text-xs text-destructive flex items-center gap-1 mt-2">
+                          <X className="w-3 h-3" /> Rejected: {rejection.proctorFeedback}
+                        </div>
+                      )}
                     </div>
-                    {!completed && <ChevronRight className="text-muted-foreground" />}
+                    {!disabled && <ChevronRight className="text-muted-foreground" />}
                   </CardContent>
                 </Card>
               );

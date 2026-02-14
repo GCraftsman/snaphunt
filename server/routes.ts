@@ -50,6 +50,12 @@ async function getFullHuntState(huntId: string) {
     players: playersData.map(p => ({ id: p.id, name: p.name, teamId: p.teamId, isProctor: p.isProctor })),
     items,
     submissions: subs.filter(s => s.verified).map(s => ({ itemId: s.itemId, teamId: s.teamId, photoData: s.photoData })),
+    pendingSubmissions: subs.filter(s => s.status === "pending").map(s => ({
+      id: s.id, itemId: s.itemId, teamId: s.teamId, playerId: s.playerId, photoData: s.photoData, createdAt: s.createdAt,
+    })),
+    rejectedSubmissions: subs.filter(s => s.status === "rejected").map(s => ({
+      id: s.id, itemId: s.itemId, teamId: s.teamId, playerId: s.playerId, proctorFeedback: s.proctorFeedback,
+    })),
   };
 }
 
@@ -135,6 +141,7 @@ export async function registerRoutes(
             description: items[i].description,
             points: items[i].points || 100,
             sortOrder: i,
+            verificationMode: items[i].verificationMode || "ai",
           });
         }
       }
@@ -374,6 +381,34 @@ export async function registerRoutes(
       const item = await storage.getItem(itemId);
       if (!item) return res.status(404).json({ error: "Item not found" });
 
+      if (item.verificationMode === "proctor") {
+        const submission = await storage.createSubmission({
+          huntId,
+          itemId,
+          teamId,
+          playerId,
+          photoData,
+          verified: false,
+          aiResponse: "",
+          status: "pending",
+        });
+
+        broadcastToHunt(huntId, {
+          type: "submission_pending",
+          data: {
+            id: submission.id, itemId, teamId, playerId, photoData, createdAt: submission.createdAt,
+          },
+        });
+
+        res.json({
+          verified: false,
+          aiResponse: "",
+          points: 0,
+          status: "pending",
+        });
+        return;
+      }
+
       let verified = false;
       let aiResponse = "";
       try {
@@ -438,6 +473,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
         photoData: verified ? photoData : "",
         verified,
         aiResponse,
+        status: verified ? "approved" : "rejected",
       });
 
       if (verified) {
@@ -458,10 +494,74 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
         verified,
         aiResponse,
         points: verified ? item.points : 0,
+        status: verified ? "approved" : "rejected",
       });
     } catch (error) {
       console.error("Error submitting photo:", error);
       res.status(500).json({ error: "Failed to submit photo" });
+    }
+  });
+
+  app.post("/api/hunts/:id/review-submission", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const userId = (req as any).user?.claims?.sub;
+
+      const hunt = await storage.getHunt(huntId);
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+
+      const { submissionId, approved, feedback } = req.body;
+      const submission = await storage.getSubmission(submissionId);
+      if (!submission || submission.huntId !== huntId) {
+        return res.status(404).json({ error: "Submission not found" });
+      }
+      if (submission.status !== "pending") {
+        return res.status(400).json({ error: "Submission already reviewed" });
+      }
+
+      if (approved) {
+        const item = await storage.getItem(submission.itemId);
+        if (!item) return res.status(404).json({ error: "Item not found" });
+
+        await storage.updateSubmission(submissionId, {
+          verified: true,
+          status: "approved",
+          proctorFeedback: feedback || "Approved by proctor",
+        });
+
+        const team = await storage.updateTeamScore(submission.teamId, item.points);
+        broadcastToHunt(huntId, {
+          type: "item_completed",
+          data: {
+            itemId: submission.itemId,
+            teamId: submission.teamId,
+            points: item.points,
+            newScore: team.score,
+            photoData: submission.photoData,
+          },
+        });
+        broadcastToHunt(huntId, {
+          type: "submission_reviewed",
+          data: { submissionId, itemId: submission.itemId, teamId: submission.teamId, approved: true, feedback: feedback || "Approved by proctor" },
+        });
+      } else {
+        await storage.updateSubmission(submissionId, {
+          verified: false,
+          status: "rejected",
+          proctorFeedback: feedback || "Not a match",
+          photoData: "",
+        });
+        broadcastToHunt(huntId, {
+          type: "submission_reviewed",
+          data: { submissionId, itemId: submission.itemId, teamId: submission.teamId, approved: false, feedback: feedback || "Not a match" },
+        });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error reviewing submission:", error);
+      res.status(500).json({ error: "Failed to review submission" });
     }
   });
 

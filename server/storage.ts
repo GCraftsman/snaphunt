@@ -39,6 +39,9 @@ export interface IStorage {
   createSubmission(data: InsertSubmission): Promise<Submission>;
   getSubmissionsByHunt(huntId: string): Promise<Submission[]>;
   getSubmissionByTeamAndItem(teamId: number, itemId: number): Promise<Submission | undefined>;
+  getSubmission(id: number): Promise<Submission | undefined>;
+  updateSubmission(id: number, data: Partial<Submission>): Promise<Submission>;
+  getPendingSubmissionsByHunt(huntId: string): Promise<Submission[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -144,9 +147,29 @@ export class DatabaseStorage implements IStorage {
 
   async getSubmissionByTeamAndItem(teamId: number, itemId: number): Promise<Submission | undefined> {
     const [sub] = await db.select().from(submissions).where(
-      and(eq(submissions.teamId, teamId), eq(submissions.itemId, itemId), eq(submissions.verified, true))
+      and(
+        eq(submissions.teamId, teamId),
+        eq(submissions.itemId, itemId),
+        or(eq(submissions.verified, true), eq(submissions.status, "pending"))
+      )
     );
     return sub;
+  }
+
+  async getSubmission(id: number): Promise<Submission | undefined> {
+    const [sub] = await db.select().from(submissions).where(eq(submissions.id, id));
+    return sub;
+  }
+
+  async updateSubmission(id: number, data: Partial<Submission>): Promise<Submission> {
+    const [sub] = await db.update(submissions).set(data).where(eq(submissions.id, id)).returning();
+    return sub;
+  }
+
+  async getPendingSubmissionsByHunt(huntId: string): Promise<Submission[]> {
+    return db.select().from(submissions).where(
+      and(eq(submissions.huntId, huntId), eq(submissions.status, "pending"))
+    );
   }
 }
 

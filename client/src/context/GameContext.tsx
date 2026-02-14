@@ -24,12 +24,30 @@ export interface ScavengerItem {
   points: number;
   sortOrder: number;
   huntId: string;
+  verificationMode: "ai" | "proctor";
 }
 
 export interface CompletedSubmission {
   itemId: number;
   teamId: number;
   photoData: string;
+}
+
+export interface PendingSubmission {
+  id: number;
+  itemId: number;
+  teamId: number;
+  playerId: string;
+  photoData: string;
+  createdAt: string;
+}
+
+export interface RejectedSubmission {
+  id: number;
+  itemId: number;
+  teamId: number;
+  playerId: string;
+  proctorFeedback: string;
 }
 
 export interface GameSettings {
@@ -46,6 +64,8 @@ interface GameContextType {
   players: Player[];
   items: ScavengerItem[];
   completedSubmissions: CompletedSubmission[];
+  pendingSubmissions: PendingSubmission[];
+  rejectedSubmissions: RejectedSubmission[];
   settings: GameSettings;
   timeRemaining: number;
   isLocked: boolean;
@@ -54,13 +74,14 @@ interface GameContextType {
   countdownValue: number;
   connected: boolean;
 
-  createHunt: (items: { description: string; points: number }[], settings: GameSettings, teamNames?: string[], huntName?: string) => Promise<string | null>;
+  createHunt: (items: { description: string; points: number; verificationMode?: string }[], settings: GameSettings, teamNames?: string[], huntName?: string) => Promise<string | null>;
   joinHunt: (code: string, name: string) => Promise<boolean>;
   joinTeam: (teamId: number) => void;
   lockTeams: () => void;
   startCountdown: () => void;
   stopGame: () => Promise<boolean>;
-  submitPhoto: (itemId: number, photoData: string) => Promise<{ verified: boolean; aiResponse: string; points: number }>;
+  submitPhoto: (itemId: number, photoData: string) => Promise<{ verified: boolean; aiResponse: string; points: number; status?: string }>;
+  reviewSubmission: (submissionId: number, approved: boolean, feedback?: string) => Promise<boolean>;
   resetGame: () => void;
   setSessionFromStorage: () => boolean;
 }
@@ -80,6 +101,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [items, setItems] = useState<ScavengerItem[]>([]);
   const [completedSubmissions, setCompletedSubmissions] = useState<CompletedSubmission[]>([]);
+  const [pendingSubmissions, setPendingSubmissions] = useState<PendingSubmission[]>([]);
+  const [rejectedSubmissions, setRejectedSubmissions] = useState<RejectedSubmission[]>([]);
   const [settings, setSettings] = useState<GameSettings>({ durationMinutes: 60, teamCount: 4, countdownSeconds: 10 });
   const [isLocked, setIsLocked] = useState(false);
   const [currentUser, setCurrentUser] = useState<Player | null>(null);
@@ -126,6 +149,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           setPlayers(d.players);
           setItems(d.items);
           setCompletedSubmissions(d.submissions || []);
+          setPendingSubmissions(d.pendingSubmissions || []);
+          setRejectedSubmissions(d.rejectedSubmissions || []);
           setIsLocked(d.hunt.teamsLocked);
           setSettings({
             durationMinutes: d.hunt.durationMinutes,
@@ -174,7 +199,23 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             teamId: msg.data.teamId,
             photoData: msg.data.photoData,
           }]);
+          setPendingSubmissions(prev => prev.filter(s => !(s.itemId === msg.data.itemId && s.teamId === msg.data.teamId)));
           setTeams(prev => prev.map(t => t.id === msg.data.teamId ? { ...t, score: msg.data.newScore } : t));
+          break;
+        case "submission_pending":
+          setPendingSubmissions(prev => [...prev, msg.data]);
+          break;
+        case "submission_reviewed":
+          if (!msg.data.approved) {
+            setPendingSubmissions(prev => prev.filter(s => s.id !== msg.data.submissionId));
+            setRejectedSubmissions(prev => [...prev, {
+              id: msg.data.submissionId,
+              itemId: msg.data.itemId,
+              teamId: msg.data.teamId,
+              playerId: "",
+              proctorFeedback: msg.data.feedback,
+            }]);
+          }
           break;
       }
     };
@@ -223,7 +264,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, [connectWebSocket]);
 
   const createHunt = async (
-    itemList: { description: string; points: number }[],
+    itemList: { description: string; points: number; verificationMode?: string }[],
     gameSettings: GameSettings,
     teamNames?: string[],
     huntName?: string
@@ -374,6 +415,26 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const reviewSubmission = async (submissionId: number, approved: boolean, feedback?: string): Promise<boolean> => {
+    if (!huntId) return false;
+    try {
+      const res = await fetch(`/api/hunts/${huntId}/review-submission`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ submissionId, approved, feedback }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error);
+      }
+      return true;
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+      return false;
+    }
+  };
+
   const resetGame = () => {
     if (wsRef.current) wsRef.current.close();
     sessionStorage.removeItem(SESSION_KEY);
@@ -384,6 +445,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setPlayers([]);
     setItems([]);
     setCompletedSubmissions([]);
+    setPendingSubmissions([]);
+    setRejectedSubmissions([]);
     setIsLocked(false);
     setCurrentUser(null);
     setSessionToken(null);
@@ -403,6 +466,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         players,
         items,
         completedSubmissions,
+        pendingSubmissions,
+        rejectedSubmissions,
         settings,
         timeRemaining,
         isLocked,
@@ -417,6 +482,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         startCountdown,
         stopGame,
         submitPhoto,
+        reviewSubmission,
         resetGame,
         setSessionFromStorage,
       }}

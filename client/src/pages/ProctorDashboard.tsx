@@ -10,12 +10,13 @@ import { Slider } from "@/components/ui/slider";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut } from "lucide-react";
+import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
 
@@ -213,20 +214,23 @@ export default function ProctorDashboard() {
   const { user, isLoading: authLoading } = useAuth();
   const {
     createHunt, status, players, teams, lockTeams, startCountdown, stopGame,
-    huntCode, isLocked, huntId, currentUser, items, timeRemaining, completedSubmissions, resetGame,
+    huntCode, isLocked, huntId, currentUser, items, timeRemaining, completedSubmissions,
+    pendingSubmissions, rejectedSubmissions, reviewSubmission, resetGame, countdownValue,
   } = useGame();
   const [_, setLocation] = useLocation();
   const [showSetup, setShowSetup] = useState(false);
+  const [reviewingSubmission, setReviewingSubmission] = useState<any | null>(null);
+  const [rejectFeedback, setRejectFeedback] = useState("");
 
   const [huntName, setHuntName] = useState("Scavenger Hunt");
   const [duration, setDuration] = useState(60);
   const [teamCount, setTeamCount] = useState(4);
   const [countdown, setCountdown] = useState(10);
-  const [customItems, setCustomItems] = useState<{ description: string; points: number }[]>([
-    { description: "Find a red stapler", points: 100 },
-    { description: "Team high five", points: 200 },
-    { description: "Human pyramid (3 people)", points: 500 },
-    { description: "Something older than you", points: 150 },
+  const [customItems, setCustomItems] = useState<{ description: string; points: number; verificationMode: string }[]>([
+    { description: "Find a red stapler", points: 100, verificationMode: "ai" },
+    { description: "Team high five", points: 200, verificationMode: "ai" },
+    { description: "Human pyramid (3 people)", points: 500, verificationMode: "ai" },
+    { description: "Something older than you", points: 150, verificationMode: "ai" },
   ]);
   const [teamNames, setTeamNames] = useState<string[]>(["Team 1", "Team 2", "Team 3", "Team 4"]);
   const [newItemText, setNewItemText] = useState("");
@@ -248,7 +252,7 @@ export default function ProctorDashboard() {
 
   const handleAddItem = () => {
     if (!newItemText) return;
-    setCustomItems([...customItems, { description: newItemText, points: newItemPoints }]);
+    setCustomItems([...customItems, { description: newItemText, points: newItemPoints, verificationMode: "ai" }]);
     setNewItemText("");
   };
 
@@ -291,10 +295,22 @@ export default function ProctorDashboard() {
             <p className="text-muted-foreground">
               {status === "lobby" && "Waiting for players to join..."}
               {status === "countdown" && "Countdown in progress!"}
-              {status === "active" && `Game Active - ${formatTime(timeRemaining)} remaining`}
+              {status === "active" && "Game Active"}
               {status === "finished" && "Game Over!"}
             </p>
           </div>
+          {status === "countdown" && (
+            <div className="px-6 py-3 bg-yellow-500/20 rounded-xl border border-yellow-500/50 text-center">
+              <p className="text-xs text-yellow-400 uppercase tracking-wider">Starting In</p>
+              <p className="text-4xl font-mono font-black text-yellow-400" data-testid="text-countdown-value">{countdownValue}</p>
+            </div>
+          )}
+          {status === "active" && (
+            <div className={`px-6 py-3 rounded-xl border text-center ${timeRemaining < 300 ? "bg-destructive/20 border-destructive/50" : "bg-primary/20 border-primary/50"}`}>
+              <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1 justify-center"><Timer className="w-3 h-3" /> Time Left</p>
+              <p className={`text-3xl font-mono font-black ${timeRemaining < 300 ? "text-destructive animate-pulse" : "text-primary"}`} data-testid="text-proctor-timer">{formatTime(timeRemaining)}</p>
+            </div>
+          )}
           <div className="flex gap-4 flex-wrap">
             {status === "lobby" && (
               <>
@@ -428,11 +444,22 @@ export default function ProctorDashboard() {
               <div className="space-y-2">
                 {items.map(item => {
                   const completedBy = completedSubmissions.filter(s => s.itemId === item.id).map(s => s.teamId);
+                  const pendingCount = pendingSubmissions.filter(s => s.itemId === item.id).length;
                   return (
                     <div key={item.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
                       <div className="flex items-center gap-3">
                         <span className="font-mono text-primary font-bold w-12 text-right">{item.points}</span>
                         <span>{item.description}</span>
+                        {item.verificationMode === "proctor" && (
+                          <Badge variant="outline" className="border-yellow-400/30 text-yellow-400 text-[10px]">
+                            <Eye className="w-2.5 h-2.5 mr-0.5" /> Proctor
+                          </Badge>
+                        )}
+                        {pendingCount > 0 && (
+                          <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-400/30 text-[10px]">
+                            {pendingCount} pending
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex gap-1">
                         {teams.map(t => (
@@ -450,6 +477,95 @@ export default function ProctorDashboard() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {(status === "active" || status === "finished") && pendingSubmissions.length > 0 && (
+          <Card className="bg-card/50 backdrop-blur-sm border-yellow-500/30">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Eye className="w-5 h-5 text-yellow-400" />
+                Pending Review
+                <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-400/30 ml-2">{pendingSubmissions.length}</Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {pendingSubmissions.map(sub => {
+                  const item = items.find(i => i.id === sub.itemId);
+                  const team = teams.find(t => t.id === sub.teamId);
+                  const player = players.find(p => p.id === sub.playerId);
+                  return (
+                    <div
+                      key={sub.id}
+                      className="flex items-center gap-4 p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
+                      onClick={() => { setReviewingSubmission(sub); setRejectFeedback(""); }}
+                      data-testid={`pending-submission-${sub.id}`}
+                    >
+                      <img src={sub.photoData} alt="Submission" className="w-16 h-16 rounded-lg object-cover" />
+                      <div className="flex-1">
+                        <p className="font-medium">{item?.description}</p>
+                        <p className="text-sm text-muted-foreground">
+                          by {player?.name || "Unknown"} &middot; <span style={{ color: team?.color }}>{team?.name}</span>
+                        </p>
+                      </div>
+                      <ChevronRight className="text-muted-foreground" />
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {reviewingSubmission && (
+          <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setReviewingSubmission(null)}>
+            <div className="bg-card rounded-xl border border-white/10 max-w-lg w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+              <div className="p-4 border-b border-white/10">
+                <h3 className="text-lg font-bold">Review Submission</h3>
+                <p className="text-sm text-muted-foreground">
+                  {items.find(i => i.id === reviewingSubmission.itemId)?.description} &middot;{" "}
+                  <span style={{ color: teams.find(t => t.id === reviewingSubmission.teamId)?.color }}>
+                    {teams.find(t => t.id === reviewingSubmission.teamId)?.name}
+                  </span>
+                  {" "}&middot; {players.find(p => p.id === reviewingSubmission.playerId)?.name}
+                </p>
+              </div>
+              <div className="p-4">
+                <img src={reviewingSubmission.photoData} alt="Submission" className="w-full rounded-lg max-h-[50vh] object-contain bg-black" />
+              </div>
+              <div className="p-4 space-y-3 border-t border-white/10">
+                <Input
+                  placeholder="Feedback (optional for approve, recommended for reject)"
+                  value={rejectFeedback}
+                  onChange={e => setRejectFeedback(e.target.value)}
+                  data-testid="input-review-feedback"
+                />
+                <div className="flex gap-3">
+                  <Button
+                    className="flex-1 bg-green-500 hover:bg-green-600 text-black font-bold"
+                    onClick={async () => {
+                      await reviewSubmission(reviewingSubmission.id, true, rejectFeedback || undefined);
+                      setReviewingSubmission(null);
+                    }}
+                    data-testid="button-approve-submission"
+                  >
+                    <Check className="w-4 h-4 mr-2" /> Approve
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1 font-bold"
+                    onClick={async () => {
+                      await reviewSubmission(reviewingSubmission.id, false, rejectFeedback || "Not a match");
+                      setReviewingSubmission(null);
+                    }}
+                    data-testid="button-reject-submission"
+                  >
+                    <X className="w-4 h-4 mr-2" /> Reject
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     );
@@ -574,17 +690,32 @@ export default function ProctorDashboard() {
                       <div key={idx} className="flex items-center justify-between p-3 bg-card rounded-lg border border-white/5 hover:border-primary/30 transition-colors group">
                         <div className="flex items-center gap-4">
                           <span className="font-mono text-primary font-bold w-12 text-right">{item.points}</span>
-                          <span>{item.description}</span>
+                          <span className="flex-1">{item.description}</span>
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleRemoveItem(idx)}
-                          className="hover:text-destructive text-muted-foreground"
-                          data-testid={`button-remove-item-${idx}`}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const updated = [...customItems];
+                              updated[idx] = { ...item, verificationMode: item.verificationMode === "ai" ? "proctor" : "ai" };
+                              setCustomItems(updated);
+                            }}
+                            className={`text-xs px-2 py-1 h-7 ${item.verificationMode === "proctor" ? "text-yellow-400 border-yellow-400/30 bg-yellow-400/10" : "text-cyan-400 border-cyan-400/30 bg-cyan-400/10"} border`}
+                            data-testid={`button-toggle-verify-${idx}`}
+                          >
+                            {item.verificationMode === "ai" ? <><Bot className="w-3 h-3 mr-1" /> AI</> : <><Eye className="w-3 h-3 mr-1" /> Proctor</>}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemoveItem(idx)}
+                            className="hover:text-destructive text-muted-foreground"
+                            data-testid={`button-remove-item-${idx}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
