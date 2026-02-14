@@ -31,11 +31,11 @@ function broadcastToHunt(huntId: string, message: object) {
   const connections = huntConnections.get(huntId);
   if (!connections) return;
   const data = JSON.stringify(message);
-  for (const ws of connections) {
+  connections.forEach((ws) => {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(data);
     }
-  }
+  });
 }
 
 async function getFullHuntState(huntId: string) {
@@ -53,6 +53,11 @@ async function getFullHuntState(huntId: string) {
     items,
     submissions: subs.filter(s => s.verified).map(s => ({ itemId: s.itemId, teamId: s.teamId, photoData: s.photoData })),
   };
+}
+
+function getParam(params: Record<string, string | string[]>, key: string): string {
+  const val = params[key];
+  return Array.isArray(val) ? val[0] : val;
 }
 
 export async function registerRoutes(
@@ -154,7 +159,7 @@ export async function registerRoutes(
   // Get hunt by code
   app.get("/api/hunts/code/:code", async (req: Request, res: Response) => {
     try {
-      const hunt = await storage.getHuntByCode(req.params.code);
+      const hunt = await storage.getHuntByCode(getParam(req.params, "code"));
       if (!hunt) return res.status(404).json({ error: "Hunt not found" });
       res.json(hunt);
     } catch (error) {
@@ -165,7 +170,7 @@ export async function registerRoutes(
   // Get hunt state
   app.get("/api/hunts/:id", async (req: Request, res: Response) => {
     try {
-      const state = await getFullHuntState(req.params.id);
+      const state = await getFullHuntState(getParam(req.params, "id"));
       if (!state) return res.status(404).json({ error: "Hunt not found" });
       res.json(state);
     } catch (error) {
@@ -177,7 +182,7 @@ export async function registerRoutes(
   app.post("/api/hunts/:id/join", async (req: Request, res: Response) => {
     try {
       const { name } = req.body;
-      const huntId = req.params.id;
+      const huntId = getParam(req.params, "id");
 
       const hunt = await storage.getHunt(huntId);
       if (!hunt) return res.status(404).json({ error: "Hunt not found" });
@@ -205,7 +210,7 @@ export async function registerRoutes(
   app.post("/api/hunts/:id/join-team", async (req: Request, res: Response) => {
     try {
       const { playerId, teamId } = req.body;
-      const huntId = req.params.id;
+      const huntId = getParam(req.params, "id");
 
       const hunt = await storage.getHunt(huntId);
       if (!hunt) return res.status(404).json({ error: "Hunt not found" });
@@ -227,7 +232,7 @@ export async function registerRoutes(
   // Lock teams (proctor)
   app.post("/api/hunts/:id/lock-teams", async (req: Request, res: Response) => {
     try {
-      const huntId = req.params.id;
+      const huntId = getParam(req.params, "id");
       await storage.updateHunt(huntId, { teamsLocked: true });
 
       broadcastToHunt(huntId, { type: "teams_locked" });
@@ -240,7 +245,7 @@ export async function registerRoutes(
   // Start countdown (proctor)
   app.post("/api/hunts/:id/start-countdown", async (req: Request, res: Response) => {
     try {
-      const huntId = req.params.id;
+      const huntId = getParam(req.params, "id");
       const now = new Date();
       await storage.updateHunt(huntId, {
         status: "countdown",
@@ -289,7 +294,7 @@ export async function registerRoutes(
   app.post("/api/hunts/:id/submit", async (req: Request, res: Response) => {
     try {
       const { itemId, teamId, playerId, photoData } = req.body;
-      const huntId = req.params.id;
+      const huntId = getParam(req.params, "id");
 
       const hunt = await storage.getHunt(huntId);
       if (!hunt || hunt.status !== "active") {
@@ -314,14 +319,24 @@ export async function registerRoutes(
           messages: [
             {
               role: "system",
-              content: `You are a judge for a photo scavenger hunt game. You need to determine if a submitted photo matches the target item/activity. Be reasonably lenient - if the photo shows a genuine attempt at the item, approve it. Respond with a JSON object: {"match": true/false, "reason": "brief explanation"}`
+              content: `You are a strict but fair judge for a photo scavenger hunt game. Your job is to verify whether a submitted photo genuinely shows the requested item or activity.
+
+IMPORTANT RULES:
+- The photo MUST clearly and unmistakably show the specific item or activity described.
+- Do NOT accept photos that show something vaguely similar or unrelated.
+- If the target is "Lamp" the photo must show an actual lamp. A bedsheet, wall, or random object is NOT a lamp.
+- If the target is "Team high five" the photo must show people actually doing a high five.
+- Be strict: reject anything that doesn't clearly match. Players should not be able to cheat by submitting random photos.
+- Only approve if you are confident the photo genuinely depicts the requested item/activity.
+
+Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} or {"match": false, "reason": "brief explanation of what's wrong"}`
             },
             {
               role: "user",
               content: [
                 {
                   type: "text",
-                  text: `Does this photo show: "${item.description}"? Respond with JSON only.`
+                  text: `The scavenger hunt item is: "${item.description}". Look at this photo carefully. Does it CLEARLY and UNMISTAKABLY show this specific item/activity? If there is any doubt, reject it. Respond with JSON only.`
                 },
                 {
                   type: "image_url",
@@ -347,8 +362,8 @@ export async function registerRoutes(
         }
       } catch (aiError) {
         console.error("AI verification error:", aiError);
-        verified = true;
-        aiResponse = "AI verification unavailable - auto-approved";
+        verified = false;
+        aiResponse = "AI verification unavailable - please try again";
       }
 
       // Save submission

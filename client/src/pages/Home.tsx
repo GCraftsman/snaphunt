@@ -15,6 +15,14 @@ export default function Home() {
   const [_, setLocation] = useLocation();
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const codeFromUrl = params.get("code");
+    if (codeFromUrl) {
+      setGameCode(codeFromUrl.toUpperCase());
+    }
+  }, []);
+
+  useEffect(() => {
     const restored = setSessionFromStorage();
     if (restored) {
       const stored = sessionStorage.getItem("snaphunt_session");
