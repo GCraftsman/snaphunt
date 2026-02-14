@@ -192,7 +192,12 @@ export default function Game() {
                       <X className="w-10 h-10 text-destructive" />
                     </div>
                     <p className="text-destructive font-bold text-xl" data-testid="text-rejected">Not a match</p>
-                    <p className="text-muted-foreground text-sm text-center">{submitResult.aiResponse}</p>
+                    {submitResult.aiResponse && (
+                      <div className="bg-white/5 rounded-lg p-3 max-w-xs">
+                        <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Reason</p>
+                        <p className="text-white text-sm text-center" data-testid="text-ai-reason">{submitResult.aiResponse}</p>
+                      </div>
+                    )}
                     <Button onClick={() => { setCapturedImage(null); setSubmitResult(null); }} variant="outline" data-testid="button-try-again">
                       Try Again
                     </Button>
