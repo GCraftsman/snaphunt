@@ -15,7 +15,7 @@ import { motion } from "framer-motion";
 export default function ProctorDashboard() {
   const {
     createHunt, status, players, teams, lockTeams, startCountdown,
-    huntCode, isLocked, huntId, currentUser, items, timeRemaining, completedSubmissions,
+    huntCode, isLocked, huntId, currentUser, items, timeRemaining, completedSubmissions, resetGame,
   } = useGame();
   const [_, setLocation] = useLocation();
 
@@ -110,6 +110,15 @@ export default function ProctorDashboard() {
                   <Play className="mr-2 w-5 h-5" /> Start Hunt Countdown
                 </Button>
               </>
+            )}
+            {status === "finished" && (
+              <Button
+                variant="outline"
+                onClick={() => { resetGame(); setLocation("/"); }}
+                data-testid="button-new-game"
+              >
+                New Game
+              </Button>
             )}
             {status !== "lobby" && (
               <div className="px-4 py-2 bg-secondary/20 rounded-lg border border-secondary/50 text-secondary font-mono font-bold" data-testid="text-status">

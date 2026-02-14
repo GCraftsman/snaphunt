@@ -23,16 +23,42 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const restored = setSessionFromStorage();
-    if (restored) {
-      const stored = sessionStorage.getItem("snaphunt_session");
-      if (stored) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("fresh") === "1") {
+      sessionStorage.removeItem("snaphunt_session");
+      return;
+    }
+
+    const stored = sessionStorage.getItem("snaphunt_session");
+    if (stored) {
+      try {
         const session = JSON.parse(stored);
-        if (session.player.isProctor) {
-          setLocation("/proctor");
-        } else {
-          setLocation("/lobby");
-        }
+        fetch(`/api/hunts/${session.huntId}`)
+          .then(res => {
+            if (!res.ok) {
+              sessionStorage.removeItem("snaphunt_session");
+              return;
+            }
+            return res.json();
+          })
+          .then(data => {
+            if (!data || data.hunt?.status === "finished") {
+              sessionStorage.removeItem("snaphunt_session");
+              return;
+            }
+            const restored = setSessionFromStorage();
+            if (restored) {
+              if (session.player.isProctor) {
+                setLocation("/proctor");
+              } else if (data.hunt?.status === "active") {
+                setLocation("/game");
+              } else {
+                setLocation("/lobby");
+              }
+            }
+          });
+      } catch {
+        sessionStorage.removeItem("snaphunt_session");
       }
     }
   }, []);
