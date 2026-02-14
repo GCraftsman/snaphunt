@@ -418,6 +418,9 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
           if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
             verified = !!parsed.match;
+            if (parsed.reason) {
+              aiResponse = parsed.reason;
+            }
           }
         } catch {
           verified = false;
