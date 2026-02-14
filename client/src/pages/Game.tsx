@@ -43,6 +43,8 @@ export default function Game() {
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [requestingCamera, setRequestingCamera] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
@@ -71,6 +73,52 @@ export default function Game() {
       if (recordedUrl) URL.revokeObjectURL(recordedUrl);
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedItem || selectedItem.mediaType !== "video") return;
+    if (videoStreamRef.current || recordedUrl) return;
+
+    let cancelled = false;
+    const initCamera = async () => {
+      setRequestingCamera(true);
+      setVideoError(null);
+      setCameraReady(false);
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          setVideoError("Your browser doesn't support video recording. Please use a modern browser.");
+          setRequestingCamera(false);
+          return;
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: true,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+        videoStreamRef.current = stream;
+        setCameraReady(true);
+        setRequestingCamera(false);
+        if (videoPreviewRef.current) {
+          videoPreviewRef.current.srcObject = stream;
+          try { await videoPreviewRef.current.play(); } catch (_) {}
+        }
+      } catch (permErr: any) {
+        if (cancelled) return;
+        setRequestingCamera(false);
+        if (permErr.name === "NotAllowedError") {
+          setVideoError("Camera access was denied. Please allow camera and microphone permissions in your browser settings, then try again.");
+        } else if (permErr.name === "NotFoundError") {
+          setVideoError("No camera found. Please make sure your device has a camera.");
+        } else {
+          setVideoError(`Could not access camera: ${permErr.message || "Unknown error"}`);
+        }
+      }
+    };
+    initCamera();
+    return () => { cancelled = true; };
+  }, [selectedItem?.id]);
 
   const isItemCompleted = (itemId: number) => completedSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
   const isItemPending = (itemId: number) => pendingSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
@@ -105,40 +153,30 @@ export default function Game() {
   const startVideoRecording = async () => {
     setVideoError(null);
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setVideoError("Your browser doesn't support video recording. Please use a modern browser like Chrome or Safari.");
-        return;
-      }
-
       if (typeof MediaRecorder === "undefined") {
         setVideoError("Video recording is not supported in this browser.");
         return;
       }
 
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
-          audio: true,
-        });
-      } catch (permErr: any) {
-        if (permErr.name === "NotAllowedError") {
-          setVideoError("Camera access was denied. Please allow camera and microphone permissions and try again.");
-        } else if (permErr.name === "NotFoundError") {
-          setVideoError("No camera found. Please make sure your device has a camera.");
-        } else {
-          setVideoError(`Could not access camera: ${permErr.message || "Unknown error"}`);
-        }
-        return;
-      }
-
-      videoStreamRef.current = stream;
-
-      if (videoPreviewRef.current) {
-        videoPreviewRef.current.srcObject = stream;
+      let stream = videoStreamRef.current;
+      if (!stream) {
         try {
-          await videoPreviewRef.current.play();
-        } catch (_) {}
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: true,
+          });
+          videoStreamRef.current = stream;
+          setCameraReady(true);
+        } catch (permErr: any) {
+          if (permErr.name === "NotAllowedError") {
+            setVideoError("Camera access was denied. Please allow camera and microphone permissions in your browser settings, then try again.");
+          } else if (permErr.name === "NotFoundError") {
+            setVideoError("No camera found. Please make sure your device has a camera.");
+          } else {
+            setVideoError(`Could not access camera: ${permErr.message || "Unknown error"}`);
+          }
+          return;
+        }
       }
 
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
@@ -150,8 +188,6 @@ export default function Game() {
             : "";
 
       if (!mimeType) {
-        stream.getTracks().forEach(t => t.stop());
-        videoStreamRef.current = null;
         setVideoError("Your browser doesn't support any video recording format. Please try Chrome or Firefox.");
         return;
       }
@@ -177,15 +213,17 @@ export default function Game() {
           clearInterval(recordingTimerRef.current);
           recordingTimerRef.current = null;
         }
-        stream.getTracks().forEach(t => t.stop());
+        stream!.getTracks().forEach(t => t.stop());
         videoStreamRef.current = null;
+        setCameraReady(false);
       };
 
       recorder.onerror = () => {
         setIsRecording(false);
         setVideoError("Recording failed unexpectedly. Please try again.");
-        stream.getTracks().forEach(t => t.stop());
+        stream!.getTracks().forEach(t => t.stop());
         videoStreamRef.current = null;
+        setCameraReady(false);
       };
 
       recorder.start(1000);
@@ -252,6 +290,8 @@ export default function Game() {
     setSubmitResult(null);
     setRecordedBlob(null);
     setVideoError(null);
+    setCameraReady(false);
+    setRequestingCamera(false);
     if (recordedUrl) {
       URL.revokeObjectURL(recordedUrl);
       setRecordedUrl(null);
@@ -399,8 +439,13 @@ export default function Game() {
         </Tabs>
       </main>
 
-      <Dialog open={!!selectedItem} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent className="sm:max-w-md bg-black border-white/10 p-0 overflow-hidden h-full sm:h-auto max-h-[90vh] flex flex-col">
+      <Dialog open={!!selectedItem} onOpenChange={(open) => { if (!open && !requestingCamera) closeDialog(); }}>
+        <DialogContent
+          className="sm:max-w-md bg-black border-white/10 p-0 overflow-hidden h-full sm:h-auto max-h-[90vh] flex flex-col"
+          onInteractOutside={(e) => { if (requestingCamera || isRecording) e.preventDefault(); }}
+          onPointerDownOutside={(e) => { if (requestingCamera || isRecording) e.preventDefault(); }}
+          onEscapeKeyDown={(e) => { if (isRecording) e.preventDefault(); }}
+        >
           <DialogHeader className="p-4 bg-background z-10">
             <DialogTitle className="flex justify-between items-center">
               <span>{selectedItem?.description}</span>
@@ -423,7 +468,13 @@ export default function Game() {
                 ) : (
                   <>
                     <video
-                      ref={videoPreviewRef}
+                      ref={(el) => {
+                        (videoPreviewRef as any).current = el;
+                        if (el && videoStreamRef.current && !el.srcObject) {
+                          el.srcObject = videoStreamRef.current;
+                          el.play().catch(() => {});
+                        }
+                      }}
                       autoPlay
                       muted
                       playsInline
@@ -454,7 +505,19 @@ export default function Game() {
                             <>
                               <AlertTriangle className="w-12 h-12 mx-auto text-red-400" />
                               <p className="text-red-400 text-sm px-4">{videoError}</p>
-                              <p className="text-white/50 text-xs">Tap REC to try again</p>
+                              <p className="text-white/50 text-xs">Close and reopen this item to try again</p>
+                            </>
+                          ) : requestingCamera ? (
+                            <>
+                              <Loader2 className="w-12 h-12 mx-auto text-white/60 animate-spin" />
+                              <p className="text-white/80 text-sm">Requesting camera access...</p>
+                              <p className="text-white/50 text-xs">Please allow camera and microphone when prompted</p>
+                            </>
+                          ) : cameraReady ? (
+                            <>
+                              <Video className="w-12 h-12 mx-auto text-white/60" />
+                              <p className="text-white/80 text-sm">Camera ready! Tap REC to start recording</p>
+                              <p className="text-white/50 text-xs">Max {videoLength} seconds</p>
                             </>
                           ) : (
                             <>
