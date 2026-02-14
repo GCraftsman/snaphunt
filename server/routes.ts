@@ -502,6 +502,46 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
     }
   });
 
+  app.post("/api/hunts/:id/redo-submission", async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const { itemId, sessionToken } = req.body;
+
+      const hunt = await storage.getHunt(huntId);
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.status !== "active") return res.status(400).json({ error: "Game is not active" });
+
+      const player = await storage.getPlayerByToken(sessionToken);
+      if (!player || player.huntId !== huntId) return res.status(403).json({ error: "Not authorized" });
+      if (!player.teamId) return res.status(400).json({ error: "Not on a team" });
+
+      const submission = await storage.getSubmissionByTeamAndItem(player.teamId, itemId);
+      if (!submission) return res.status(404).json({ error: "No submission found" });
+      if (!submission.verified) return res.status(400).json({ error: "Submission not approved" });
+
+      const item = await storage.getItem(itemId);
+      if (!item) return res.status(404).json({ error: "Item not found" });
+
+      await storage.deleteSubmission(submission.id);
+      const team = await storage.updateTeamScore(player.teamId, -item.points);
+
+      broadcastToHunt(huntId, {
+        type: "submission_redo",
+        data: {
+          itemId,
+          teamId: player.teamId,
+          points: item.points,
+          newScore: team.score,
+        },
+      });
+
+      res.json({ success: true, newScore: team.score });
+    } catch (error) {
+      console.error("Error redoing submission:", error);
+      res.status(500).json({ error: "Failed to redo submission" });
+    }
+  });
+
   app.post("/api/hunts/:id/review-submission", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const huntId = getParam(req.params, "id");

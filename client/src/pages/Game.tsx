@@ -5,9 +5,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, List, Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot } from "lucide-react";
+import { Trophy, List, Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot, RotateCcw, AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 import Confetti from "react-confetti";
 import { useLocation } from "wouter";
@@ -18,7 +23,7 @@ function useWindowSizeValues() {
 }
 
 export default function Game() {
-  const { items, teams, currentUser, timeRemaining, submitPhoto, completedSubmissions, pendingSubmissions, rejectedSubmissions, status } = useGame();
+  const { items, teams, currentUser, timeRemaining, submitPhoto, redoSubmission, completedSubmissions, pendingSubmissions, rejectedSubmissions, status } = useGame();
   const [activeTab, setActiveTab] = useState("list");
   const [selectedItem, setSelectedItem] = useState<{ id: number; description: string; points: number } | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -28,6 +33,9 @@ export default function Game() {
   const { width, height } = useWindowSizeValues();
   const [showConfetti, setShowConfetti] = useState(false);
   const [_, setLocation] = useLocation();
+  const [viewingItem, setViewingItem] = useState<{ id: number; description: string; points: number } | null>(null);
+  const [showRedoConfirm, setShowRedoConfirm] = useState(false);
+  const [isRedoing, setIsRedoing] = useState(false);
 
   const myTeam = teams.find(t => t.id === currentUser?.teamId);
   const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
@@ -49,6 +57,22 @@ export default function Game() {
 
   const getItemRejection = (itemId: number) => {
     return rejectedSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
+  };
+
+  const getCompletedSubmission = (itemId: number) => {
+    return completedSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
+  };
+
+  const handleRedo = async () => {
+    if (!viewingItem) return;
+    setIsRedoing(true);
+    const success = await redoSubmission(viewingItem.id);
+    setIsRedoing(false);
+    setShowRedoConfirm(false);
+    if (success) {
+      setViewingItem(null);
+      setSelectedItem(viewingItem);
+    }
   };
 
   const formatTime = (seconds: number) => {
@@ -133,17 +157,22 @@ export default function Game() {
               const completed = isItemCompleted(item.id);
               const pending = isItemPending(item.id);
               const rejection = getItemRejection(item.id);
-              const disabled = completed || pending;
               return (
                 <Card
                   key={item.id}
-                  className={`border transition-all ${
-                    completed ? "bg-green-500/10 border-green-500/30 opacity-70" :
+                  className={`border transition-all cursor-pointer ${
+                    completed ? "bg-green-500/10 border-green-500/30" :
                     pending ? "bg-yellow-500/10 border-yellow-500/30 opacity-80" :
-                    rejection ? "bg-card border-destructive/30" :
+                    rejection ? "bg-card border-destructive/30 hover:border-destructive/50 active:scale-[0.98]" :
                     "bg-card border-white/5 hover:border-primary/50 active:scale-[0.98]"
                   }`}
-                  onClick={() => !disabled && setSelectedItem(item)}
+                  onClick={() => {
+                    if (completed) {
+                      setViewingItem(item);
+                    } else if (!pending) {
+                      setSelectedItem(item);
+                    }
+                  }}
                   data-testid={`card-item-${item.id}`}
                 >
                   <CardContent className="p-4 flex items-center gap-4">
@@ -165,7 +194,7 @@ export default function Game() {
                       </div>
                       {completed && (
                         <div className="text-xs text-green-400 flex items-center gap-1 mt-2">
-                          <Check className="w-3 h-3" /> Completed by team
+                          <Check className="w-3 h-3" /> Completed - tap to view
                         </div>
                       )}
                       {pending && (
@@ -179,7 +208,7 @@ export default function Game() {
                         </div>
                       )}
                     </div>
-                    {!disabled && <ChevronRight className="text-muted-foreground" />}
+                    <ChevronRight className="text-muted-foreground" />
                   </CardContent>
                 </Card>
               );
@@ -294,6 +323,74 @@ export default function Game() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!viewingItem} onOpenChange={(open) => !open && setViewingItem(null)}>
+        <DialogContent className="sm:max-w-md bg-black border-white/10 p-0 overflow-hidden">
+          <DialogHeader className="p-4 bg-background z-10">
+            <DialogTitle className="flex justify-between items-center">
+              <span>{viewingItem?.description}</span>
+              <Badge className="bg-green-500 text-black ml-2">{viewingItem?.points} PTS</Badge>
+            </DialogTitle>
+            <DialogDescription className="text-green-400 flex items-center gap-1 text-sm">
+              <Check className="w-4 h-4" /> Approved
+            </DialogDescription>
+          </DialogHeader>
+
+          {viewingItem && (() => {
+            const sub = getCompletedSubmission(viewingItem.id);
+            return (
+              <div className="flex flex-col">
+                {sub?.photoData ? (
+                  <div className="relative bg-black flex items-center justify-center max-h-[50vh] overflow-hidden">
+                    <img src={sub.photoData} alt="Submitted photo" className="w-full h-full object-contain" />
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-muted-foreground">
+                    <Camera className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">Photo not available</p>
+                  </div>
+                )}
+
+                <div className="p-4 bg-background border-t border-white/10 space-y-3">
+                  <Button
+                    variant="outline"
+                    className="w-full border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/10"
+                    onClick={() => setShowRedoConfirm(true)}
+                    data-testid="button-redo"
+                  >
+                    <RotateCcw className="mr-2 w-4 h-4" /> Redo This Item
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={showRedoConfirm} onOpenChange={setShowRedoConfirm}>
+        <AlertDialogContent className="bg-background border-white/10">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-yellow-400" /> Redo Submission?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>This will remove your previous submission for <strong className="text-white">"{viewingItem?.description}"</strong> and subtract <strong className="text-yellow-400">{viewingItem?.points} points</strong> from your team's score.</p>
+              <p>You'll then be able to take a new photo and resubmit.</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRedoing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleRedo}
+              disabled={isRedoing}
+              className="bg-yellow-500 hover:bg-yellow-600 text-black font-bold"
+              data-testid="button-confirm-redo"
+            >
+              {isRedoing ? "Removing..." : "Yes, Redo"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

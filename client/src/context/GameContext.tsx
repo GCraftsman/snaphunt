@@ -82,6 +82,7 @@ interface GameContextType {
   stopGame: () => Promise<boolean>;
   submitPhoto: (itemId: number, photoData: string) => Promise<{ verified: boolean; aiResponse: string; points: number; status?: string }>;
   reviewSubmission: (submissionId: number, approved: boolean, feedback?: string) => Promise<boolean>;
+  redoSubmission: (itemId: number) => Promise<boolean>;
   resetGame: () => void;
   setSessionFromStorage: () => boolean;
 }
@@ -216,6 +217,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
               proctorFeedback: msg.data.feedback,
             }]);
           }
+          break;
+        case "submission_redo":
+          setCompletedSubmissions(prev => prev.filter(s => !(s.itemId === msg.data.itemId && s.teamId === msg.data.teamId)));
+          setTeams(prev => prev.map(t => t.id === msg.data.teamId ? { ...t, score: msg.data.newScore } : t));
           break;
       }
     };
@@ -435,6 +440,25 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const redoSubmission = async (itemId: number): Promise<boolean> => {
+    if (!huntId || !sessionToken) return false;
+    try {
+      const res = await fetch(`/api/hunts/${huntId}/redo-submission`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId, sessionToken }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error);
+      }
+      return true;
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+      return false;
+    }
+  };
+
   const resetGame = () => {
     if (wsRef.current) wsRef.current.close();
     sessionStorage.removeItem(SESSION_KEY);
@@ -483,6 +507,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         stopGame,
         submitPhoto,
         reviewSubmission,
+        redoSubmission,
         resetGame,
         setSessionFromStorage,
       }}
