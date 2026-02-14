@@ -411,6 +411,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
         });
 
         const responseText = completion.choices[0]?.message?.content || "";
+        console.log("AI raw response:", responseText);
         aiResponse = responseText;
 
         try {
@@ -418,9 +419,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
           if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
             verified = !!parsed.match;
-            if (parsed.reason) {
-              aiResponse = parsed.reason;
-            }
+            aiResponse = parsed.reason || parsed.explanation || parsed.message || responseText;
           }
         } catch {
           verified = false;
