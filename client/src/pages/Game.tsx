@@ -42,6 +42,7 @@ export default function Game() {
   const [recordingTime, setRecordingTime] = useState(0);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
@@ -102,23 +103,58 @@ export default function Game() {
   }, [webcamRef]);
 
   const startVideoRecording = async () => {
+    setVideoError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: true,
-      });
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setVideoError("Your browser doesn't support video recording. Please use a modern browser like Chrome or Safari.");
+        return;
+      }
+
+      if (typeof MediaRecorder === "undefined") {
+        setVideoError("Video recording is not supported in this browser.");
+        return;
+      }
+
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
+          audio: true,
+        });
+      } catch (permErr: any) {
+        if (permErr.name === "NotAllowedError") {
+          setVideoError("Camera access was denied. Please allow camera and microphone permissions and try again.");
+        } else if (permErr.name === "NotFoundError") {
+          setVideoError("No camera found. Please make sure your device has a camera.");
+        } else {
+          setVideoError(`Could not access camera: ${permErr.message || "Unknown error"}`);
+        }
+        return;
+      }
+
       videoStreamRef.current = stream;
 
       if (videoPreviewRef.current) {
         videoPreviewRef.current.srcObject = stream;
-        videoPreviewRef.current.play();
+        try {
+          await videoPreviewRef.current.play();
+        } catch (_) {}
       }
 
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
         ? "video/webm;codecs=vp8,opus"
         : MediaRecorder.isTypeSupported("video/webm")
           ? "video/webm"
-          : "video/mp4";
+          : MediaRecorder.isTypeSupported("video/mp4")
+            ? "video/mp4"
+            : "";
+
+      if (!mimeType) {
+        stream.getTracks().forEach(t => t.stop());
+        videoStreamRef.current = null;
+        setVideoError("Your browser doesn't support any video recording format. Please try Chrome or Firefox.");
+        return;
+      }
 
       const recorder = new MediaRecorder(stream, {
         mimeType,
@@ -145,6 +181,13 @@ export default function Game() {
         videoStreamRef.current = null;
       };
 
+      recorder.onerror = () => {
+        setIsRecording(false);
+        setVideoError("Recording failed unexpectedly. Please try again.");
+        stream.getTracks().forEach(t => t.stop());
+        videoStreamRef.current = null;
+      };
+
       recorder.start(1000);
       setIsRecording(true);
       setRecordingTime(0);
@@ -157,8 +200,9 @@ export default function Game() {
           recorder.stop();
         }
       }, 100);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to start recording:", err);
+      setVideoError(`Failed to start recording: ${err.message || "Unknown error"}`);
     }
   };
 
@@ -207,6 +251,7 @@ export default function Game() {
     setCapturedImage(null);
     setSubmitResult(null);
     setRecordedBlob(null);
+    setVideoError(null);
     if (recordedUrl) {
       URL.revokeObjectURL(recordedUrl);
       setRecordedUrl(null);
@@ -405,9 +450,19 @@ export default function Game() {
                     {!isRecording && !recordedUrl && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                         <div className="text-center space-y-2">
-                          <Video className="w-12 h-12 mx-auto text-white/60" />
-                          <p className="text-white/80 text-sm">Tap REC to start recording</p>
-                          <p className="text-white/50 text-xs">Max {videoLength} seconds</p>
+                          {videoError ? (
+                            <>
+                              <AlertTriangle className="w-12 h-12 mx-auto text-red-400" />
+                              <p className="text-red-400 text-sm px-4">{videoError}</p>
+                              <p className="text-white/50 text-xs">Tap REC to try again</p>
+                            </>
+                          ) : (
+                            <>
+                              <Video className="w-12 h-12 mx-auto text-white/60" />
+                              <p className="text-white/80 text-sm">Tap REC to start recording</p>
+                              <p className="text-white/50 text-xs">Max {videoLength} seconds</p>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}
