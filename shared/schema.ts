@@ -3,15 +3,20 @@ import { pgTable, text, varchar, integer, boolean, timestamp, serial, jsonb } fr
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+export * from "./models/auth";
+
 export const hunts = pgTable("hunts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   code: varchar("code", { length: 8 }).notNull().unique(),
+  name: varchar("name", { length: 200 }).notNull().default("Scavenger Hunt"),
   status: varchar("status", { length: 20 }).notNull().default("setup"),
+  proctorUserId: varchar("proctor_user_id"),
   durationMinutes: integer("duration_minutes").notNull().default(60),
   countdownSeconds: integer("countdown_seconds").notNull().default(10),
   teamCount: integer("team_count").notNull().default(4),
   teamsLocked: boolean("teams_locked").notNull().default(false),
   gameStartTime: timestamp("game_start_time"),
+  gameEndTime: timestamp("game_end_time"),
   countdownStartTime: timestamp("countdown_start_time"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
@@ -27,6 +32,7 @@ export const teams = pgTable("teams", {
 export const players = pgTable("players", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   huntId: varchar("hunt_id").notNull().references(() => hunts.id, { onDelete: "cascade" }),
+  userId: varchar("user_id"),
   name: varchar("name", { length: 100 }).notNull(),
   teamId: integer("team_id").references(() => teams.id),
   isProctor: boolean("is_proctor").notNull().default(false),
@@ -53,14 +59,12 @@ export const submissions = pgTable("submissions", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
-// Insert schemas
 export const insertHuntSchema = createInsertSchema(hunts).omit({ id: true, createdAt: true, code: true });
 export const insertTeamSchema = createInsertSchema(teams).omit({ id: true });
 export const insertPlayerSchema = createInsertSchema(players).omit({ id: true });
 export const insertScavengerItemSchema = createInsertSchema(scavengerItems).omit({ id: true });
 export const insertSubmissionSchema = createInsertSchema(submissions).omit({ id: true, createdAt: true });
 
-// Types
 export type Hunt = typeof hunts.$inferSelect;
 export type InsertHunt = z.infer<typeof insertHuntSchema>;
 export type Team = typeof teams.$inferSelect;
@@ -71,18 +75,3 @@ export type ScavengerItem = typeof scavengerItems.$inferSelect;
 export type InsertScavengerItem = z.infer<typeof insertScavengerItemSchema>;
 export type Submission = typeof submissions.$inferSelect;
 export type InsertSubmission = z.infer<typeof insertSubmissionSchema>;
-
-// Chat models for AI integrations (required by integration)
-export const conversations = pgTable("conversations", {
-  id: serial("id").primaryKey(),
-  title: text("title").notNull(),
-  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
-
-export const messages = pgTable("messages", {
-  id: serial("id").primaryKey(),
-  conversationId: integer("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
-  role: text("role").notNull(),
-  content: text("content").notNull(),
-  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
-});

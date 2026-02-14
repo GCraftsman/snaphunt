@@ -2,9 +2,8 @@ import type { Express, Request, Response } from "express";
 import { type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
-import { z } from "zod";
 import OpenAI from "openai";
-import express from "express";
+import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 
 const openai = new OpenAI({
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
@@ -24,7 +23,6 @@ const TEAM_COLORS = [
   "hsl(210 100% 60%)",
 ];
 
-// --- WebSocket Management ---
 const huntConnections = new Map<string, Set<WebSocket>>();
 
 function broadcastToHunt(huntId: string, message: object) {
@@ -64,25 +62,24 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // --- WebSocket Server ---
+  await setupAuth(app);
+  registerAuthRoutes(app);
+
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
-  wss.on("connection", (ws, req) => {
+  wss.on("connection", (ws) => {
     let huntId: string | null = null;
 
     ws.on("message", async (raw) => {
       try {
         const msg = JSON.parse(raw.toString());
-
         if (msg.type === "join_hunt") {
           huntId = msg.huntId;
           if (!huntId) return;
-
           if (!huntConnections.has(huntId)) {
             huntConnections.set(huntId, new Set());
           }
           huntConnections.get(huntId)!.add(ws);
-
           const state = await getFullHuntState(huntId);
           if (state) {
             ws.send(JSON.stringify({ type: "full_state", data: state }));
@@ -103,21 +100,24 @@ export async function registerRoutes(
     });
   });
 
-  // --- REST API Routes ---
+  // --- Proctor routes (require login) ---
 
-  // Create a new hunt (proctor)
-  app.post("/api/hunts", async (req: Request, res: Response) => {
+  app.post("/api/hunts", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const { items, settings, teamNames } = req.body;
+      const user = (req as any).user;
+      const userId = user?.claims?.sub;
+      const userName = user?.claims?.first_name || user?.claims?.email || "Proctor";
+      const { items, settings, teamNames, huntName } = req.body;
 
       const hunt = await storage.createHunt({
+        name: huntName || "Scavenger Hunt",
         status: "lobby",
+        proctorUserId: userId,
         durationMinutes: settings.durationMinutes || 60,
         countdownSeconds: settings.countdownSeconds || 10,
         teamCount: settings.teamCount || 4,
       });
 
-      // Create teams
       for (let i = 0; i < (settings.teamCount || 4); i++) {
         const name = teamNames?.[i] || `Team ${i + 1}`;
         await storage.createTeam({
@@ -128,7 +128,6 @@ export async function registerRoutes(
         });
       }
 
-      // Create items
       if (items && Array.isArray(items)) {
         for (let i = 0; i < items.length; i++) {
           await storage.createItem({
@@ -140,11 +139,11 @@ export async function registerRoutes(
         }
       }
 
-      // Create proctor player
       const sessionToken = crypto.randomUUID();
       const proctor = await storage.createPlayer({
         huntId: hunt.id,
-        name: "Game Proctor",
+        name: userName,
+        userId,
         isProctor: true,
         sessionToken,
       });
@@ -156,7 +155,54 @@ export async function registerRoutes(
     }
   });
 
-  // Get hunt by code
+  app.get("/api/my/hunts", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).user?.claims?.sub;
+      const proctored = await storage.getHuntsByProctor(userId);
+      const played = await storage.getHuntsByPlayer(userId);
+
+      const playedFiltered = played.filter(h => !proctored.find(p => p.id === h.id));
+
+      const enrichHunt = async (hunt: any) => {
+        const teamsData = await storage.getTeamsByHunt(hunt.id);
+        const playersData = await storage.getPlayersByHunt(hunt.id);
+        return {
+          ...hunt,
+          teams: teamsData,
+          playerCount: playersData.filter((p: any) => !p.isProctor).length,
+        };
+      };
+
+      const proctoredEnriched = await Promise.all(proctored.map(enrichHunt));
+      const playedEnriched = await Promise.all(playedFiltered.map(enrichHunt));
+
+      res.json({ proctored: proctoredEnriched, played: playedEnriched });
+    } catch (error) {
+      console.error("Error fetching hunts:", error);
+      res.status(500).json({ error: "Failed to fetch hunts" });
+    }
+  });
+
+  app.post("/api/hunts/:id/stop", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const userId = (req as any).user?.claims?.sub;
+      const hunt = await storage.getHunt(huntId);
+
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+
+      await storage.updateHunt(huntId, { status: "finished", gameEndTime: new Date() });
+      broadcastToHunt(huntId, { type: "game_finished" });
+
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to stop game" });
+    }
+  });
+
+  // --- Public routes (no login required) ---
+
   app.get("/api/hunts/code/:code", async (req: Request, res: Response) => {
     try {
       const hunt = await storage.getHuntByCode(getParam(req.params, "code"));
@@ -167,7 +213,6 @@ export async function registerRoutes(
     }
   });
 
-  // Get hunt state
   app.get("/api/hunts/:id", async (req: Request, res: Response) => {
     try {
       const state = await getFullHuntState(getParam(req.params, "id"));
@@ -178,7 +223,6 @@ export async function registerRoutes(
     }
   });
 
-  // Join a hunt (player)
   app.post("/api/hunts/:id/join", async (req: Request, res: Response) => {
     try {
       const { name } = req.body;
@@ -206,7 +250,6 @@ export async function registerRoutes(
     }
   });
 
-  // Join a team
   app.post("/api/hunts/:id/join-team", async (req: Request, res: Response) => {
     try {
       const { playerId, teamId } = req.body;
@@ -229,12 +272,10 @@ export async function registerRoutes(
     }
   });
 
-  // Lock teams (proctor)
   app.post("/api/hunts/:id/lock-teams", async (req: Request, res: Response) => {
     try {
       const huntId = getParam(req.params, "id");
       await storage.updateHunt(huntId, { teamsLocked: true });
-
       broadcastToHunt(huntId, { type: "teams_locked" });
       res.json({ success: true });
     } catch (error) {
@@ -242,7 +283,6 @@ export async function registerRoutes(
     }
   });
 
-  // Start countdown (proctor)
   app.post("/api/hunts/:id/start-countdown", async (req: Request, res: Response) => {
     try {
       const huntId = getParam(req.params, "id");
@@ -262,7 +302,6 @@ export async function registerRoutes(
         },
       });
 
-      // Schedule game start
       setTimeout(async () => {
         const gameStart = new Date();
         await storage.updateHunt(huntId, {
@@ -277,10 +316,12 @@ export async function registerRoutes(
           },
         });
 
-        // Schedule game end
         setTimeout(async () => {
-          await storage.updateHunt(huntId, { status: "finished" });
-          broadcastToHunt(huntId, { type: "game_finished" });
+          const currentHunt = await storage.getHunt(huntId);
+          if (currentHunt && currentHunt.status === "active") {
+            await storage.updateHunt(huntId, { status: "finished", gameEndTime: new Date() });
+            broadcastToHunt(huntId, { type: "game_finished" });
+          }
         }, hunt!.durationMinutes * 60 * 1000);
       }, hunt!.countdownSeconds * 1000);
 
@@ -290,7 +331,6 @@ export async function registerRoutes(
     }
   });
 
-  // Submit photo for verification
   app.post("/api/hunts/:id/submit", async (req: Request, res: Response) => {
     try {
       const { itemId, teamId, playerId, photoData } = req.body;
@@ -301,7 +341,6 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Game is not active" });
       }
 
-      // Check if already completed by this team
       const existing = await storage.getSubmissionByTeamAndItem(teamId, itemId);
       if (existing) {
         return res.status(400).json({ error: "Already completed by your team" });
@@ -310,7 +349,6 @@ export async function registerRoutes(
       const item = await storage.getItem(itemId);
       if (!item) return res.status(404).json({ error: "Item not found" });
 
-      // AI Verification
       let verified = false;
       let aiResponse = "";
       try {
@@ -358,7 +396,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
             verified = !!parsed.match;
           }
         } catch {
-          verified = responseText.toLowerCase().includes("true") || responseText.toLowerCase().includes("match");
+          verified = false;
         }
       } catch (aiError) {
         console.error("AI verification error:", aiError);
@@ -366,7 +404,6 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
         aiResponse = "AI verification unavailable - please try again";
       }
 
-      // Save submission
       const submission = await storage.createSubmission({
         huntId,
         itemId,
@@ -378,10 +415,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
       });
 
       if (verified) {
-        // Update team score
         const team = await storage.updateTeamScore(teamId, item.points);
-
-        // Broadcast to all players
         broadcastToHunt(huntId, {
           type: "item_completed",
           data: {

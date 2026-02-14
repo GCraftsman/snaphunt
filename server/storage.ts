@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, or, desc } from "drizzle-orm";
 import {
   hunts, teams, players, scavengerItems, submissions,
   type Hunt, type InsertHunt,
@@ -15,30 +15,27 @@ function generateCode(): string {
 }
 
 export interface IStorage {
-  // Hunts
   createHunt(data: InsertHunt): Promise<Hunt>;
   getHunt(id: string): Promise<Hunt | undefined>;
   getHuntByCode(code: string): Promise<Hunt | undefined>;
   updateHunt(id: string, data: Partial<Hunt>): Promise<Hunt>;
+  getHuntsByProctor(userId: string): Promise<Hunt[]>;
+  getHuntsByPlayer(userId: string): Promise<Hunt[]>;
 
-  // Teams
   createTeam(data: InsertTeam): Promise<Team>;
   getTeamsByHunt(huntId: string): Promise<Team[]>;
   getTeam(id: number): Promise<Team | undefined>;
   updateTeamScore(id: number, points: number): Promise<Team>;
 
-  // Players
   createPlayer(data: InsertPlayer): Promise<Player>;
   getPlayersByHunt(huntId: string): Promise<Player[]>;
   getPlayerByToken(token: string): Promise<Player | undefined>;
   updatePlayerTeam(id: string, teamId: number | null): Promise<Player>;
 
-  // Items
   createItem(data: InsertScavengerItem): Promise<ScavengerItem>;
   getItemsByHunt(huntId: string): Promise<ScavengerItem[]>;
   getItem(id: number): Promise<ScavengerItem | undefined>;
 
-  // Submissions
   createSubmission(data: InsertSubmission): Promise<Submission>;
   getSubmissionsByHunt(huntId: string): Promise<Submission[]>;
   getSubmissionByTeamAndItem(teamId: number, itemId: number): Promise<Submission | undefined>;
@@ -64,6 +61,22 @@ export class DatabaseStorage implements IStorage {
   async updateHunt(id: string, data: Partial<Hunt>): Promise<Hunt> {
     const [hunt] = await db.update(hunts).set(data).where(eq(hunts.id, id)).returning();
     return hunt;
+  }
+
+  async getHuntsByProctor(userId: string): Promise<Hunt[]> {
+    return db.select().from(hunts).where(eq(hunts.proctorUserId, userId)).orderBy(desc(hunts.createdAt));
+  }
+
+  async getHuntsByPlayer(userId: string): Promise<Hunt[]> {
+    const playerRows = await db.select().from(players).where(eq(players.userId, userId));
+    const huntIds = [...new Set(playerRows.map(p => p.huntId))];
+    if (huntIds.length === 0) return [];
+    const results: Hunt[] = [];
+    for (const hId of huntIds) {
+      const hunt = await this.getHunt(hId);
+      if (hunt) results.push(hunt);
+    }
+    return results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
   async createTeam(data: InsertTeam): Promise<Team> {
