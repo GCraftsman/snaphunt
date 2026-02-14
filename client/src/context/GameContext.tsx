@@ -54,11 +54,12 @@ interface GameContextType {
   countdownValue: number;
   connected: boolean;
 
-  createHunt: (items: { description: string; points: number }[], settings: GameSettings, teamNames?: string[]) => Promise<string | null>;
+  createHunt: (items: { description: string; points: number }[], settings: GameSettings, teamNames?: string[], huntName?: string) => Promise<string | null>;
   joinHunt: (code: string, name: string) => Promise<boolean>;
   joinTeam: (teamId: number) => void;
   lockTeams: () => void;
   startCountdown: () => void;
+  stopGame: () => Promise<boolean>;
   submitPhoto: (itemId: number, photoData: string) => Promise<{ verified: boolean; aiResponse: string; points: number }>;
   resetGame: () => void;
   setSessionFromStorage: () => boolean;
@@ -224,27 +225,31 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const createHunt = async (
     itemList: { description: string; points: number }[],
     gameSettings: GameSettings,
-    teamNames?: string[]
+    teamNames?: string[],
+    huntName?: string
   ): Promise<string | null> => {
     try {
       const res = await fetch("/api/hunts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           items: itemList,
           settings: gameSettings,
           teamNames,
+          huntName,
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      if (!res.ok) throw new Error(data.error || "Failed to create hunt");
 
       const hId = data.hunt.id;
       setHuntId(hId);
       setHuntCode(data.hunt.code);
       setSessionToken(data.sessionToken);
-      setCurrentUser({ id: data.playerId, name: "Game Proctor", teamId: null, isProctor: true });
-      saveSession(hId, data.sessionToken, { id: data.playerId, name: "Game Proctor", teamId: null, isProctor: true });
+      const proctorPlayer = { id: data.playerId, name: "Game Proctor", teamId: null, isProctor: true };
+      setCurrentUser(proctorPlayer);
+      saveSession(hId, data.sessionToken, proctorPlayer);
       connectWebSocket(hId);
       return hId;
     } catch (err: any) {
@@ -327,6 +332,24 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const stopGame = async (): Promise<boolean> => {
+    if (!huntId) return false;
+    try {
+      const res = await fetch(`/api/hunts/${huntId}/stop`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error);
+      }
+      return true;
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+      return false;
+    }
+  };
+
   const submitPhoto = async (itemId: number, photoData: string): Promise<{ verified: boolean; aiResponse: string; points: number }> => {
     if (!huntId || !currentUser?.teamId) {
       return { verified: false, aiResponse: "Not on a team", points: 0 };
@@ -392,6 +415,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         joinTeam,
         lockTeams,
         startCountdown,
+        stopGame,
         submitPhoto,
         resetGame,
         setSessionFromStorage,

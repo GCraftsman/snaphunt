@@ -29,20 +29,30 @@ Preferred communication style: Simple, everyday language.
 - **AI Integration:** OpenAI API (via Replit AI Integrations proxy) for photo verification - determines if submitted photos match scavenger item descriptions
 - **Static Serving:** In production, serves built Vite output from `dist/public/`. In development, Vite dev server runs as middleware with HMR.
 
+### Authentication
+- **Replit Auth** via OpenID Connect for proctor accounts. Players join without accounts.
+- **Session storage:** PostgreSQL-backed sessions via `connect-pg-simple` (sessions table)
+- **Auth flow:** `/api/login` → Replit OIDC → `/api/callback` → session created
+- **Protected routes:** `POST /api/hunts` (create), `GET /api/my/hunts` (history), `POST /api/hunts/:id/stop` (stop game)
+- **Client hook:** `useAuth()` in `client/src/hooks/use-auth.ts` provides user state, login/logout
+
 ### Database
 - **Database:** PostgreSQL with Drizzle ORM
 - **Schema** (in `shared/schema.ts`):
-  - `hunts` - Game sessions with code, status, duration, team settings, timestamps
+  - `hunts` - Game sessions with code, name, status, proctorUserId, duration, team settings, timestamps (gameStartTime, gameEndTime)
   - `teams` - Teams belonging to a hunt with name, color, score
-  - `players` - Players with hunt/team associations, proctor flag, session token
+  - `players` - Players with hunt/team associations, userId (optional), proctor flag, session token
   - `scavenger_items` - Hunt items with description, points, sort order
   - `submissions` - Photo submissions linking player, team, item with photo data (base64) and AI verification result
-- **Migrations:** Drizzle Kit with `db:push` command for schema sync
+  - `sessions` - Auth session storage (required by Replit Auth)
+  - `users` - User accounts from Replit Auth
+- **Migrations:** Drizzle Kit with `db:push` command for schema sync. Note: drizzle-kit push prompts for interactive input; for new tables, use SQL directly via execute_sql_tool.
 - **Storage layer:** `server/storage.ts` implements `IStorage` interface with `DatabaseStorage` class wrapping all Drizzle queries
 
 ### Shared Code (shared/)
-- `shared/schema.ts` contains Drizzle table definitions and Zod schemas (via drizzle-zod) used by both client and server
-- `shared/models/chat.ts` contains conversation/message schemas for the Replit AI chat integration (secondary feature)
+- `shared/schema.ts` contains Drizzle table definitions and Zod schemas (via drizzle-zod) used by both client and server. Re-exports from `shared/models/auth.ts` and `shared/models/chat.ts`.
+- `shared/models/auth.ts` - User and session table definitions for Replit Auth
+- `shared/models/chat.ts` - Conversation/message schemas for the Replit AI chat integration (secondary feature)
 
 ### Build System
 - **Development:** `tsx server/index.ts` runs the server which sets up Vite middleware for the client

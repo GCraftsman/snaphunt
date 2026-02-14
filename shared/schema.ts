@@ -4,6 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export * from "./models/auth";
+export * from "./models/chat";
 
 export const hunts = pgTable("hunts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

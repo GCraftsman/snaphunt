@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useGame } from "@/context/GameContext";
+import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,17 +10,214 @@ import { Slider } from "@/components/ui/slider";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
 
+function LoginPrompt() {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md space-y-8">
+        <div className="text-center space-y-2">
+          <div className="flex justify-center mb-4">
+            <div className="p-4 rounded-2xl bg-primary/20 ring-1 ring-primary/50">
+              <Camera className="w-12 h-12 text-primary" />
+            </div>
+          </div>
+          <h1 className="text-4xl font-black text-primary" data-testid="text-login-title">Proctor Login</h1>
+          <p className="text-muted-foreground">Sign in to create and manage scavenger hunts</p>
+        </div>
+        <Card className="border-primary/20 bg-card/50 backdrop-blur-sm">
+          <CardContent className="pt-6 space-y-4">
+            <a href="/api/login" className="block">
+              <Button className="w-full h-14 text-lg font-bold bg-primary hover:bg-primary/90 shadow-[0_0_20px_-5px_hsl(var(--primary))]" data-testid="button-login">
+                <LogIn className="mr-2 w-5 h-5" />
+                Sign In with Replit
+              </Button>
+            </a>
+            <p className="text-xs text-center text-muted-foreground">Players don't need accounts - they join with a game code</p>
+          </CardContent>
+        </Card>
+      </motion.div>
+    </div>
+  );
+}
+
+interface HuntHistoryItem {
+  id: string;
+  code: string;
+  name: string;
+  status: string;
+  durationMinutes: number;
+  createdAt: string;
+  playerCount: number;
+  teams: { id: number; name: string; score: number; color: string }[];
+}
+
+function ProctorHome({ onCreateNew }: { onCreateNew: () => void }) {
+  const { user, logout } = useAuth();
+  const { setSessionFromStorage } = useGame();
+  const [_, setLocation] = useLocation();
+
+  const { data: history, isLoading } = useQuery<{ proctored: HuntHistoryItem[]; played: HuntHistoryItem[] }>({
+    queryKey: ["/api/my/hunts"],
+    queryFn: async () => {
+      const res = await fetch("/api/my/hunts", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch");
+      return res.json();
+    },
+  });
+
+  const activeHunts = history?.proctored.filter(h => ["lobby", "active", "countdown"].includes(h.status)) || [];
+  const pastHunts = history?.proctored.filter(h => h.status === "finished") || [];
+
+  const handleResumeHunt = async (hunt: HuntHistoryItem) => {
+    try {
+      const res = await fetch(`/api/hunts/${hunt.id}/resume`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const session = {
+        huntId: data.huntId,
+        sessionToken: data.sessionToken,
+        player: data.player,
+      };
+      sessionStorage.setItem("snaphunt_session", JSON.stringify(session));
+      setSessionFromStorage();
+    } catch (err) {
+      console.error("Failed to resume hunt:", err);
+    }
+  };
+
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="border-b border-white/10 bg-card/30 backdrop-blur-sm">
+        <div className="container max-w-5xl mx-auto px-4 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <Camera className="w-6 h-6 text-primary" />
+            <h1 className="text-2xl font-black text-primary" data-testid="text-dashboard-title">SNAPHUNT</h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-muted-foreground hidden sm:block" data-testid="text-user-name">{user?.firstName || user?.email}</span>
+            <Button variant="ghost" size="sm" onClick={() => logout()} data-testid="button-logout">
+              <LogOut className="w-4 h-4 mr-1" /> Sign Out
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <div className="container max-w-5xl mx-auto px-4 py-8 space-y-8">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
+          <h2 className="text-3xl font-bold">Welcome back, {user?.firstName || "Proctor"}</h2>
+          <p className="text-muted-foreground">Create a new hunt or manage your existing games</p>
+        </motion.div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card className="border-primary/30 bg-gradient-to-br from-primary/10 to-transparent cursor-pointer hover:border-primary/60 transition-colors group" onClick={onCreateNew} data-testid="card-create-hunt">
+            <CardContent className="pt-6 flex flex-col items-center text-center space-y-3">
+              <div className="p-3 rounded-xl bg-primary/20 group-hover:bg-primary/30 transition-colors">
+                <Plus className="w-8 h-8 text-primary" />
+              </div>
+              <h3 className="text-xl font-bold">Create New Hunt</h3>
+              <p className="text-sm text-muted-foreground">Set up items, teams, and rules</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-secondary/30 bg-gradient-to-br from-secondary/10 to-transparent cursor-pointer hover:border-secondary/60 transition-colors group" onClick={() => setLocation("/")} data-testid="card-join-game">
+            <CardContent className="pt-6 flex flex-col items-center text-center space-y-3">
+              <div className="p-3 rounded-xl bg-secondary/20 group-hover:bg-secondary/30 transition-colors">
+                <QrIcon className="w-8 h-8 text-secondary" />
+              </div>
+              <h3 className="text-xl font-bold">Join a Game</h3>
+              <p className="text-sm text-muted-foreground">Enter a code to play</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {activeHunts.length > 0 && (
+          <div className="space-y-4">
+            <h3 className="text-xl font-bold flex items-center gap-2">
+              <Play className="w-5 h-5 text-green-400" /> Active Games
+            </h3>
+            <div className="grid gap-3">
+              {activeHunts.map(hunt => (
+                <Card key={hunt.id} className="border-green-500/30 bg-green-500/5 hover:border-green-500/50 transition-colors cursor-pointer" onClick={() => handleResumeHunt(hunt)} data-testid={`card-active-hunt-${hunt.id}`}>
+                  <CardContent className="py-4 flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold">{hunt.name}</h4>
+                      <p className="text-sm text-muted-foreground">
+                        Code: <span className="font-mono text-primary">{hunt.code}</span> &middot; {hunt.playerCount} players &middot; {hunt.status.toUpperCase()}
+                      </p>
+                    </div>
+                    <Button variant="outline" className="border-green-500/50 text-green-400" data-testid={`button-resume-${hunt.id}`}>Resume</Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {pastHunts.length > 0 && (
+          <div className="space-y-4">
+            <h3 className="text-xl font-bold flex items-center gap-2">
+              <History className="w-5 h-5 text-muted-foreground" /> Past Games
+            </h3>
+            <div className="grid gap-3">
+              {pastHunts.map(hunt => {
+                const winner = [...hunt.teams].sort((a, b) => b.score - a.score)[0];
+                return (
+                  <Card key={hunt.id} className="border-white/5 bg-card/30" data-testid={`card-past-hunt-${hunt.id}`}>
+                    <CardContent className="py-4 flex items-center justify-between">
+                      <div>
+                        <h4 className="font-bold">{hunt.name}</h4>
+                        <p className="text-sm text-muted-foreground">
+                          {formatDate(hunt.createdAt)} &middot; {hunt.playerCount} players &middot; {hunt.durationMinutes} min
+                        </p>
+                      </div>
+                      {winner && winner.score > 0 && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Trophy className="w-4 h-4 text-yellow-400" />
+                          <span style={{ color: winner.color }} className="font-bold">{winner.name}</span>
+                          <span className="font-mono">{winner.score} pts</span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {isLoading && <p className="text-center text-muted-foreground">Loading your games...</p>}
+      </div>
+    </div>
+  );
+}
+
 export default function ProctorDashboard() {
+  const { user, isLoading: authLoading } = useAuth();
   const {
-    createHunt, status, players, teams, lockTeams, startCountdown,
+    createHunt, status, players, teams, lockTeams, startCountdown, stopGame,
     huntCode, isLocked, huntId, currentUser, items, timeRemaining, completedSubmissions, resetGame,
   } = useGame();
   const [_, setLocation] = useLocation();
+  const [showSetup, setShowSetup] = useState(false);
 
+  const [huntName, setHuntName] = useState("Scavenger Hunt");
   const [duration, setDuration] = useState(60);
   const [teamCount, setTeamCount] = useState(4);
   const [countdown, setCountdown] = useState(10);
@@ -38,11 +237,13 @@ export default function ProctorDashboard() {
     setTeamNames(names);
   }, [teamCount]);
 
-  useEffect(() => {
-    if (status === "active" || status === "countdown" || status === "finished") {
-      // stay on dashboard
-    }
-  }, [status]);
+  if (authLoading) {
+    return <div className="min-h-screen flex items-center justify-center"><p className="text-muted-foreground">Loading...</p></div>;
+  }
+
+  if (!user) {
+    return <LoginPrompt />;
+  }
 
   const handleAddItem = () => {
     if (!newItemText) return;
@@ -57,12 +258,13 @@ export default function ProctorDashboard() {
   const handleCreateHunt = async () => {
     if (customItems.length === 0) return;
     setCreating(true);
-    const hId = await createHunt(customItems, {
+    await createHunt(customItems, {
       durationMinutes: duration,
       teamCount,
       countdownSeconds: countdown,
-    }, teamNames);
+    }, teamNames, huntName);
     setCreating(false);
+    setShowSetup(false);
   };
 
   const formatTime = (seconds: number) => {
@@ -73,9 +275,12 @@ export default function ProctorDashboard() {
 
   const joinUrl = huntCode ? `${window.location.origin}?code=${huntCode}` : window.location.origin;
 
+  if (!showSetup && !huntId) {
+    return <ProctorHome onCreateNew={() => setShowSetup(true)} />;
+  }
+
   if (huntId && status !== "setup") {
     const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
-    const totalPoints = items.reduce((a, b) => a + b.points, 0);
 
     return (
       <div className="min-h-screen bg-background p-6 space-y-6">
@@ -111,10 +316,33 @@ export default function ProctorDashboard() {
                 </Button>
               </>
             )}
+            {status === "active" && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" size="lg" data-testid="button-stop-game">
+                    <StopCircle className="mr-2 w-5 h-5" /> Stop Game
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>End the game early?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will immediately end the game for all players. Scores will be finalized and the leaderboard will be shown. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep Playing</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => stopGame()} className="bg-destructive hover:bg-destructive/90" data-testid="button-confirm-stop">
+                      Yes, End Game
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
             {status === "finished" && (
               <Button
                 variant="outline"
-                onClick={() => { resetGame(); setLocation("/"); }}
+                onClick={() => { resetGame(); setLocation("/proctor"); }}
                 data-testid="button-new-game"
               >
                 New Game
@@ -230,13 +458,24 @@ export default function ProctorDashboard() {
     <div className="container max-w-4xl mx-auto py-10 px-4">
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => setLocation("/")} data-testid="button-back">
+          <Button variant="ghost" size="icon" onClick={() => { setShowSetup(false); setLocation("/proctor"); }} data-testid="button-back">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
             <h1 className="text-4xl font-black text-primary" data-testid="text-setup-title">Setup New Hunt</h1>
             <p className="text-muted-foreground">Configure the rules, teams, and scavenger list.</p>
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-lg">Hunt Name</Label>
+          <Input
+            value={huntName}
+            onChange={(e) => setHuntName(e.target.value)}
+            placeholder="Give your hunt a name..."
+            className="h-12 text-lg bg-background/50 border-white/10"
+            data-testid="input-hunt-name"
+          />
         </div>
 
         <Tabs defaultValue="settings" className="w-full">

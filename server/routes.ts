@@ -191,6 +191,7 @@ export async function registerRoutes(
 
       if (!hunt) return res.status(404).json({ error: "Hunt not found" });
       if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+      if (hunt.status === "finished") return res.status(400).json({ error: "Game already finished" });
 
       await storage.updateHunt(huntId, { status: "finished", gameEndTime: new Date() });
       broadcastToHunt(huntId, { type: "game_finished" });
@@ -198,6 +199,30 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to stop game" });
+    }
+  });
+
+  app.post("/api/hunts/:id/resume", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const userId = (req as any).user?.claims?.sub;
+      const hunt = await storage.getHunt(huntId);
+
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+
+      const playersData = await storage.getPlayersByHunt(huntId);
+      const proctorPlayer = playersData.find(p => p.isProctor && p.userId === userId);
+
+      if (!proctorPlayer) return res.status(404).json({ error: "Proctor player not found" });
+
+      res.json({
+        sessionToken: proctorPlayer.sessionToken,
+        player: { id: proctorPlayer.id, name: proctorPlayer.name, teamId: proctorPlayer.teamId, isProctor: true },
+        huntId,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to resume hunt" });
     }
   });
 
