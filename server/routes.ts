@@ -49,9 +49,9 @@ async function getFullHuntState(huntId: string) {
     teams: teamsData,
     players: playersData.map(p => ({ id: p.id, name: p.name, teamId: p.teamId, isProctor: p.isProctor })),
     items,
-    submissions: subs.filter(s => s.verified).map(s => ({ itemId: s.itemId, teamId: s.teamId, photoData: s.photoData })),
+    submissions: subs.filter(s => s.verified).map(s => ({ itemId: s.itemId, teamId: s.teamId, photoData: s.photoData, mediaType: s.mediaType || "photo" })),
     pendingSubmissions: subs.filter(s => s.status === "pending").map(s => ({
-      id: s.id, itemId: s.itemId, teamId: s.teamId, playerId: s.playerId, photoData: s.photoData, createdAt: s.createdAt,
+      id: s.id, itemId: s.itemId, teamId: s.teamId, playerId: s.playerId, photoData: s.photoData, mediaType: s.mediaType || "photo", createdAt: s.createdAt,
     })),
     rejectedSubmissions: subs.filter(s => s.status === "rejected").map(s => ({
       id: s.id, itemId: s.itemId, teamId: s.teamId, playerId: s.playerId, proctorFeedback: s.proctorFeedback,
@@ -136,12 +136,15 @@ export async function registerRoutes(
 
       if (items && Array.isArray(items)) {
         for (let i = 0; i < items.length; i++) {
+          const mediaType = items[i].mediaType || "photo";
           await storage.createItem({
             huntId: hunt.id,
             description: items[i].description,
             points: items[i].points || 100,
             sortOrder: i,
-            verificationMode: items[i].verificationMode || "ai",
+            verificationMode: mediaType === "video" ? "proctor" : (items[i].verificationMode || "ai"),
+            mediaType,
+            videoLengthSeconds: items[i].videoLengthSeconds || 20,
           });
         }
       }
@@ -365,7 +368,7 @@ export async function registerRoutes(
 
   app.post("/api/hunts/:id/submit", async (req: Request, res: Response) => {
     try {
-      const { itemId, teamId, playerId, photoData } = req.body;
+      const { itemId, teamId, playerId, photoData, mediaType: submissionMediaType } = req.body;
       const huntId = getParam(req.params, "id");
 
       const hunt = await storage.getHunt(huntId);
@@ -381,13 +384,17 @@ export async function registerRoutes(
       const item = await storage.getItem(itemId);
       if (!item) return res.status(404).json({ error: "Item not found" });
 
-      if (item.verificationMode === "proctor") {
+      const effectiveMediaType = submissionMediaType || item.mediaType || "photo";
+      const isVideoSubmission = effectiveMediaType === "video";
+
+      if (item.verificationMode === "proctor" || isVideoSubmission) {
         const submission = await storage.createSubmission({
           huntId,
           itemId,
           teamId,
           playerId,
           photoData,
+          mediaType: effectiveMediaType,
           verified: false,
           aiResponse: "",
           status: "pending",
@@ -396,7 +403,7 @@ export async function registerRoutes(
         broadcastToHunt(huntId, {
           type: "submission_pending",
           data: {
-            id: submission.id, itemId, teamId, playerId, photoData, createdAt: submission.createdAt,
+            id: submission.id, itemId, teamId, playerId, photoData, mediaType: effectiveMediaType, createdAt: submission.createdAt,
           },
         });
 
@@ -486,6 +493,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
             points: item.points,
             newScore: team.score,
             photoData,
+            mediaType: effectiveMediaType,
           },
         });
       }
@@ -597,6 +605,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
             points: item.points,
             newScore: team.score,
             photoData: submission.photoData,
+            mediaType: submission.mediaType || "photo",
           },
         });
         broadcastToHunt(huntId, {

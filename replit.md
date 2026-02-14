@@ -2,11 +2,13 @@
 
 ## Overview
 
-SnapHunt is a real-time multiplayer photo scavenger hunt game. A proctor creates a hunt with configurable teams, items, and duration. Players join via a 6-character game code, pick teams in a lobby, then compete to photograph scavenger hunt items. Photos are verified using OpenAI's vision API or manually by the proctor (configurable per item). The game uses WebSockets for real-time state synchronization across all connected clients.
+SnapHunt is a real-time multiplayer photo and video scavenger hunt game. A proctor creates a hunt with configurable teams, items, and duration. Players join via a 6-character game code, pick teams in a lobby, then compete to photograph or record video of scavenger hunt items. Photos are verified using OpenAI's vision API or manually by the proctor (configurable per item). Video submissions are always proctor-reviewed. The game uses WebSockets for real-time state synchronization across all connected clients.
 
-**Core flow:** Proctor creates hunt → Players join via code → Teams are formed in lobby → Countdown → Active game with photo submissions → AI or proctor verification → Scoring → Game over with leaderboard.
+**Core flow:** Proctor creates hunt → Players join via code → Teams are formed in lobby → Countdown → Active game with photo/video submissions → AI or proctor verification → Scoring → Game over with leaderboard.
 
-**Verification modes:** Each scavenger item can be set to "AI" (default, uses OpenAI vision) or "Proctor" (manual review). Proctor-verified items create pending submissions that appear in the proctor's review queue. The proctor can approve (awards points) or reject (with feedback shown to the player).
+**Verification modes:** Each scavenger item can be set to "AI" (default, uses OpenAI vision) or "Proctor" (manual review). Proctor-verified items create pending submissions that appear in the proctor's review queue. The proctor can approve (awards points) or reject (with feedback shown to the player). Video items are always proctor-reviewed.
+
+**Video submissions:** Items can be set to "photo" or "video" media type during hunt setup. Video items have configurable recording length (10-60 seconds, default 20s, in 10s intervals). Players record using MediaRecorder API with real-time countdown timer and progress bar; recording auto-stops at the time limit. Videos are recorded at lower quality (500kbps, 640x480) for faster upload. After recording and confirming, players are returned to the list immediately while the video uploads in the background. An "uploading" status is shown on the item until complete. Videos are stored as base64 data URIs and stream to the proctor during review.
 
 ## User Preferences
 

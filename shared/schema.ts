@@ -47,6 +47,8 @@ export const scavengerItems = pgTable("scavenger_items", {
   points: integer("points").notNull().default(100),
   sortOrder: integer("sort_order").notNull().default(0),
   verificationMode: varchar("verification_mode", { length: 20 }).notNull().default("ai"),
+  mediaType: varchar("media_type", { length: 10 }).notNull().default("photo"),
+  videoLengthSeconds: integer("video_length_seconds").notNull().default(20),
 });
 
 export const submissions = pgTable("submissions", {
@@ -56,6 +58,7 @@ export const submissions = pgTable("submissions", {
   teamId: integer("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
   playerId: varchar("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
   photoData: text("photo_data").notNull(),
+  mediaType: varchar("media_type", { length: 10 }).notNull().default("photo"),
   verified: boolean("verified").notNull().default(false),
   aiResponse: text("ai_response"),
   status: varchar("status", { length: 20 }).notNull().default("completed"),

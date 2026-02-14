@@ -12,7 +12,7 @@ import {
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, List, Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot, RotateCcw, AlertTriangle } from "lucide-react";
+import { Trophy, List, Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot, RotateCcw, AlertTriangle, Video, Loader2, Square } from "lucide-react";
 import { motion } from "framer-motion";
 import Confetti from "react-confetti";
 import { useLocation } from "wouter";
@@ -23,9 +23,9 @@ function useWindowSizeValues() {
 }
 
 export default function Game() {
-  const { items, teams, currentUser, timeRemaining, submitPhoto, redoSubmission, completedSubmissions, pendingSubmissions, rejectedSubmissions, status } = useGame();
+  const { items, teams, currentUser, timeRemaining, submitPhoto, submitVideo, redoSubmission, completedSubmissions, pendingSubmissions, rejectedSubmissions, uploadingItems, status } = useGame();
   const [activeTab, setActiveTab] = useState("list");
-  const [selectedItem, setSelectedItem] = useState<{ id: number; description: string; points: number } | null>(null);
+  const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<{ verified: boolean; aiResponse: string } | null>(null);
@@ -33,14 +33,27 @@ export default function Game() {
   const { width, height } = useWindowSizeValues();
   const [showConfetti, setShowConfetti] = useState(false);
   const [_, setLocation] = useLocation();
-  const [viewingItem, setViewingItem] = useState<{ id: number; description: string; points: number } | null>(null);
+  const [viewingItem, setViewingItem] = useState<any | null>(null);
   const [viewingMode, setViewingMode] = useState<"completed" | "pending">("completed");
   const [showRedoConfirm, setShowRedoConfirm] = useState(false);
   const [isRedoing, setIsRedoing] = useState(false);
 
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const videoStreamRef = useRef<MediaStream | null>(null);
+  const videoPreviewRef = useRef<HTMLVideoElement>(null);
+  const chunksRef = useRef<Blob[]>([]);
+
   const myTeam = teams.find(t => t.id === currentUser?.teamId);
   const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
   const totalPoints = items.reduce((a, b) => a + b.points, 0);
+
+  const isVideoItem = selectedItem?.mediaType === "video";
+  const videoLength = selectedItem?.videoLengthSeconds || 20;
 
   useEffect(() => {
     if (status === "finished") {
@@ -48,25 +61,22 @@ export default function Game() {
     }
   }, [status, setLocation]);
 
-  const isItemCompleted = (itemId: number) => {
-    return completedSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
-  };
+  useEffect(() => {
+    return () => {
+      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      if (recordedUrl) URL.revokeObjectURL(recordedUrl);
+    };
+  }, []);
 
-  const isItemPending = (itemId: number) => {
-    return pendingSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
-  };
-
-  const getItemRejection = (itemId: number) => {
-    return rejectedSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
-  };
-
-  const getCompletedSubmission = (itemId: number) => {
-    return completedSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
-  };
-
-  const getPendingSubmission = (itemId: number) => {
-    return pendingSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
-  };
+  const isItemCompleted = (itemId: number) => completedSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
+  const isItemPending = (itemId: number) => pendingSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
+  const isItemUploading = (itemId: number) => uploadingItems.has(itemId);
+  const getItemRejection = (itemId: number) => rejectedSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
+  const getCompletedSubmission = (itemId: number) => completedSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
+  const getPendingSubmission = (itemId: number) => pendingSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
 
   const handleRedo = async () => {
     if (!viewingItem) return;
@@ -91,13 +101,79 @@ export default function Game() {
     if (imageSrc) setCapturedImage(imageSrc);
   }, [webcamRef]);
 
+  const startVideoRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: true,
+      });
+      videoStreamRef.current = stream;
+
+      if (videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream;
+        videoPreviewRef.current.play();
+      }
+
+      const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
+        ? "video/webm;codecs=vp8,opus"
+        : MediaRecorder.isTypeSupported("video/webm")
+          ? "video/webm"
+          : "video/mp4";
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: 500000,
+      });
+      mediaRecorderRef.current = recorder;
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        setRecordedBlob(blob);
+        setRecordedUrl(url);
+        setIsRecording(false);
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
+        stream.getTracks().forEach(t => t.stop());
+        videoStreamRef.current = null;
+      };
+
+      recorder.start(1000);
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      const startTime = Date.now();
+      recordingTimerRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        setRecordingTime(elapsed);
+        if (elapsed >= videoLength) {
+          recorder.stop();
+        }
+      }, 100);
+    } catch (err) {
+      console.error("Failed to start recording:", err);
+    }
+  };
+
+  const stopVideoRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
   const handleSubmit = async () => {
     if (!selectedItem || !capturedImage) return;
     setIsSubmitting(true);
     setSubmitResult(null);
 
     const result = await submitPhoto(selectedItem.id, capturedImage);
-
     setIsSubmitting(false);
 
     if (result.status === "pending") {
@@ -120,10 +196,34 @@ export default function Game() {
     }
   };
 
+  const handleVideoSubmit = () => {
+    if (!selectedItem || !recordedBlob) return;
+    submitVideo(selectedItem.id, recordedBlob);
+    closeDialog();
+  };
+
   const closeDialog = () => {
     setSelectedItem(null);
     setCapturedImage(null);
     setSubmitResult(null);
+    setRecordedBlob(null);
+    if (recordedUrl) {
+      URL.revokeObjectURL(recordedUrl);
+      setRecordedUrl(null);
+    }
+    setIsRecording(false);
+    setRecordingTime(0);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    }
+    if (videoStreamRef.current) {
+      videoStreamRef.current.getTracks().forEach(t => t.stop());
+      videoStreamRef.current = null;
+    }
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
   };
 
   return (
@@ -161,17 +261,20 @@ export default function Game() {
             {items.map(item => {
               const completed = isItemCompleted(item.id);
               const pending = isItemPending(item.id);
+              const uploading = isItemUploading(item.id);
               const rejection = getItemRejection(item.id);
               return (
                 <Card
                   key={item.id}
                   className={`border transition-all cursor-pointer ${
+                    uploading ? "bg-blue-500/10 border-blue-500/30 opacity-80" :
                     completed ? "bg-green-500/10 border-green-500/30" :
                     pending ? "bg-yellow-500/10 border-yellow-500/30 opacity-80" :
                     rejection ? "bg-card border-destructive/30 hover:border-destructive/50 active:scale-[0.98]" :
                     "bg-card border-white/5 hover:border-primary/50 active:scale-[0.98]"
                   }`}
                   onClick={() => {
+                    if (uploading) return;
                     if (completed) {
                       setViewingMode("completed");
                       setViewingItem(item);
@@ -191,6 +294,11 @@ export default function Game() {
                           {item.description}
                         </span>
                         <div className="flex items-center gap-2">
+                          {item.mediaType === "video" && (
+                            <Badge variant="outline" className="border-purple-400/30 text-purple-400 text-[10px]">
+                              <Video className="w-2.5 h-2.5 mr-0.5" /> Video
+                            </Badge>
+                          )}
                           {item.verificationMode === "proctor" && (
                             <Badge variant="outline" className="border-yellow-400/30 text-yellow-400 text-[10px]">
                               <Eye className="w-2.5 h-2.5 mr-0.5" /> Proctor
@@ -201,17 +309,22 @@ export default function Game() {
                           </Badge>
                         </div>
                       </div>
-                      {completed && (
+                      {uploading && (
+                        <div className="text-xs text-blue-400 flex items-center gap-1 mt-2">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Uploading...
+                        </div>
+                      )}
+                      {completed && !uploading && (
                         <div className="text-xs text-green-400 flex items-center gap-1 mt-2">
                           <Check className="w-3 h-3" /> Completed - tap to view
                         </div>
                       )}
-                      {pending && (
+                      {pending && !uploading && (
                         <div className="text-xs text-yellow-400 flex items-center gap-1 mt-2">
                           <Clock className="w-3 h-3" /> Waiting for review - tap to view
                         </div>
                       )}
-                      {rejection && !completed && !pending && (
+                      {rejection && !completed && !pending && !uploading && (
                         <div className="text-xs text-destructive flex items-center gap-1 mt-2">
                           <X className="w-3 h-3" /> Rejected: {rejection.proctorFeedback}
                         </div>
@@ -246,89 +359,180 @@ export default function Game() {
           <DialogHeader className="p-4 bg-background z-10">
             <DialogTitle className="flex justify-between items-center">
               <span>{selectedItem?.description}</span>
-              <Badge variant="outline" className="ml-2">{selectedItem?.points} PTS</Badge>
+              <div className="flex items-center gap-2">
+                {isVideoItem && (
+                  <Badge variant="outline" className="border-purple-400/30 text-purple-400">
+                    <Video className="w-3 h-3 mr-1" /> {videoLength}s
+                  </Badge>
+                )}
+                <Badge variant="outline">{selectedItem?.points} PTS</Badge>
+              </div>
             </DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
-            {isSubmitting ? (
-              <div className="absolute inset-0 z-20 bg-black/80 flex flex-col items-center justify-center space-y-4">
-                <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                <p className="text-primary font-bold animate-pulse" data-testid="text-analyzing">AI is analyzing your photo...</p>
-              </div>
-            ) : submitResult ? (
-              <div className="absolute inset-0 z-20 bg-black/80 flex flex-col items-center justify-center space-y-4 p-6">
-                {submitResult.verified ? (
+          {isVideoItem ? (
+            <>
+              <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden min-h-[300px]">
+                {recordedUrl ? (
+                  <video src={recordedUrl} controls className="w-full h-full object-contain" />
+                ) : (
                   <>
-                    <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center">
-                      <Check className="w-10 h-10 text-green-500" />
-                    </div>
-                    <p className="text-green-400 font-bold text-xl" data-testid="text-verified">Verified!</p>
+                    <video
+                      ref={videoPreviewRef}
+                      autoPlay
+                      muted
+                      playsInline
+                      className="w-full h-full object-cover"
+                    />
+                    {isRecording && (
+                      <div className="absolute top-4 left-0 right-0 flex flex-col items-center gap-2 z-10">
+                        <div className="flex items-center gap-2 bg-black/60 rounded-full px-4 py-2">
+                          <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+                          <span className="font-mono text-white text-lg font-bold">
+                            {recordingTime}s / {videoLength}s
+                          </span>
+                        </div>
+                        <div className="w-3/4 h-2 bg-white/20 rounded-full overflow-hidden">
+                          <motion.div
+                            className="h-full bg-red-500 rounded-full"
+                            initial={{ width: "0%" }}
+                            animate={{ width: `${(recordingTime / videoLength) * 100}%` }}
+                            transition={{ duration: 0.1 }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {!isRecording && !recordedUrl && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                        <div className="text-center space-y-2">
+                          <Video className="w-12 h-12 mx-auto text-white/60" />
+                          <p className="text-white/80 text-sm">Tap REC to start recording</p>
+                          <p className="text-white/50 text-xs">Max {videoLength} seconds</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="p-4 bg-background border-t border-white/10 grid grid-cols-2 gap-4">
+                {recordedUrl ? (
+                  <>
+                    <Button variant="outline" onClick={() => {
+                      URL.revokeObjectURL(recordedUrl);
+                      setRecordedUrl(null);
+                      setRecordedBlob(null);
+                    }} data-testid="button-retake-video">
+                      <RotateCcw className="mr-2 w-4 h-4" /> Retake
+                    </Button>
+                    <Button onClick={handleVideoSubmit} className="bg-green-500 hover:bg-green-600 text-black font-bold" data-testid="button-submit-video">
+                      <UploadCloud className="mr-2 w-4 h-4" /> Submit
+                    </Button>
+                  </>
+                ) : isRecording ? (
+                  <>
+                    <Button variant="outline" onClick={closeDialog} data-testid="button-cancel-recording">
+                      <X className="mr-2 w-4 h-4" /> Cancel
+                    </Button>
+                    <Button onClick={stopVideoRecording} className="bg-red-500 hover:bg-red-600 text-white font-bold animate-pulse" data-testid="button-stop-recording">
+                      <Square className="mr-2 w-4 h-4 fill-white" /> STOP
+                    </Button>
                   </>
                 ) : (
                   <>
-                    <div className="w-20 h-20 rounded-full bg-destructive/20 flex items-center justify-center">
-                      <X className="w-10 h-10 text-destructive" />
-                    </div>
-                    <p className="text-destructive font-bold text-xl" data-testid="text-rejected">Not a match</p>
-                    {submitResult.aiResponse && (
-                      <div className="bg-white/5 rounded-lg p-3 max-w-xs">
-                        <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Reason</p>
-                        <p className="text-white text-sm text-center" data-testid="text-ai-reason">{submitResult.aiResponse}</p>
-                      </div>
-                    )}
-                    <Button onClick={() => { setCapturedImage(null); setSubmitResult(null); }} variant="outline" data-testid="button-try-again">
-                      Try Again
+                    <Button variant="outline" onClick={closeDialog} data-testid="button-back-to-list">
+                      <ArrowLeft className="mr-2 w-4 h-4" /> Back
+                    </Button>
+                    <Button onClick={startVideoRecording} size="lg" className="h-14 text-xl font-bold bg-red-500 hover:bg-red-600 text-white" data-testid="button-record">
+                      <Video className="mr-2 w-6 h-6" /> REC
                     </Button>
                   </>
                 )}
               </div>
-            ) : capturedImage ? (
-              <img src={capturedImage} alt="Captured" className="w-full h-full object-contain" />
-            ) : (
-              <Webcam
-                audio={false}
-                ref={webcamRef}
-                screenshotFormat="image/jpeg"
-                videoConstraints={{ facingMode: "environment" }}
-                className="w-full h-full object-cover"
-              />
-            )}
+            </>
+          ) : (
+            <>
+              <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
+                {isSubmitting ? (
+                  <div className="absolute inset-0 z-20 bg-black/80 flex flex-col items-center justify-center space-y-4">
+                    <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                    <p className="text-primary font-bold animate-pulse" data-testid="text-analyzing">AI is analyzing your photo...</p>
+                  </div>
+                ) : submitResult ? (
+                  <div className="absolute inset-0 z-20 bg-black/80 flex flex-col items-center justify-center space-y-4 p-6">
+                    {submitResult.verified ? (
+                      <>
+                        <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center">
+                          <Check className="w-10 h-10 text-green-500" />
+                        </div>
+                        <p className="text-green-400 font-bold text-xl" data-testid="text-verified">Verified!</p>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-20 h-20 rounded-full bg-destructive/20 flex items-center justify-center">
+                          <X className="w-10 h-10 text-destructive" />
+                        </div>
+                        <p className="text-destructive font-bold text-xl" data-testid="text-rejected">Not a match</p>
+                        {submitResult.aiResponse && (
+                          <div className="bg-white/5 rounded-lg p-3 max-w-xs">
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Reason</p>
+                            <p className="text-white text-sm text-center" data-testid="text-ai-reason">{submitResult.aiResponse}</p>
+                          </div>
+                        )}
+                        <Button onClick={() => { setCapturedImage(null); setSubmitResult(null); }} variant="outline" data-testid="button-try-again">
+                          Try Again
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                ) : capturedImage ? (
+                  <img src={capturedImage} alt="Captured" className="w-full h-full object-contain" />
+                ) : (
+                  <Webcam
+                    audio={false}
+                    ref={webcamRef}
+                    screenshotFormat="image/jpeg"
+                    videoConstraints={{ facingMode: "environment" }}
+                    className="w-full h-full object-cover"
+                  />
+                )}
 
-            {!capturedImage && !isSubmitting && !submitResult && (
-              <div className="absolute inset-0 border-[40px] border-black/50 pointer-events-none flex items-center justify-center">
-                <div className="w-64 h-64 border-2 border-white/30 rounded-lg relative">
-                  <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-primary -mt-0.5 -ml-0.5" />
-                  <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-primary -mt-0.5 -mr-0.5" />
-                  <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-primary -mb-0.5 -ml-0.5" />
-                  <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-primary -mb-0.5 -mr-0.5" />
-                </div>
+                {!capturedImage && !isSubmitting && !submitResult && (
+                  <div className="absolute inset-0 border-[40px] border-black/50 pointer-events-none flex items-center justify-center">
+                    <div className="w-64 h-64 border-2 border-white/30 rounded-lg relative">
+                      <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-primary -mt-0.5 -ml-0.5" />
+                      <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-primary -mt-0.5 -mr-0.5" />
+                      <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-primary -mb-0.5 -ml-0.5" />
+                      <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-primary -mb-0.5 -mr-0.5" />
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {!submitResult && (
-            <div className="p-4 bg-background border-t border-white/10 grid grid-cols-2 gap-4">
-              {capturedImage ? (
-                <>
-                  <Button variant="outline" onClick={() => setCapturedImage(null)} disabled={isSubmitting} data-testid="button-retake">
-                    <X className="mr-2 w-4 h-4" /> Retake
-                  </Button>
-                  <Button onClick={handleSubmit} disabled={isSubmitting} className="bg-green-500 hover:bg-green-600 text-black font-bold" data-testid="button-submit-photo">
-                    <UploadCloud className="mr-2 w-4 h-4" /> Submit
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button variant="outline" onClick={closeDialog} data-testid="button-back-to-list">
-                    <ArrowLeft className="mr-2 w-4 h-4" /> Back
-                  </Button>
-                  <Button onClick={capture} size="lg" className="h-14 text-xl font-bold bg-primary hover:bg-primary/90" data-testid="button-snap">
-                    <Camera className="mr-2 w-6 h-6" /> SNAP
-                  </Button>
-                </>
+              {!submitResult && (
+                <div className="p-4 bg-background border-t border-white/10 grid grid-cols-2 gap-4">
+                  {capturedImage ? (
+                    <>
+                      <Button variant="outline" onClick={() => setCapturedImage(null)} disabled={isSubmitting} data-testid="button-retake">
+                        <X className="mr-2 w-4 h-4" /> Retake
+                      </Button>
+                      <Button onClick={handleSubmit} disabled={isSubmitting} className="bg-green-500 hover:bg-green-600 text-black font-bold" data-testid="button-submit-photo">
+                        <UploadCloud className="mr-2 w-4 h-4" /> Submit
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button variant="outline" onClick={closeDialog} data-testid="button-back-to-list">
+                        <ArrowLeft className="mr-2 w-4 h-4" /> Back
+                      </Button>
+                      <Button onClick={capture} size="lg" className="h-14 text-xl font-bold bg-primary hover:bg-primary/90" data-testid="button-snap">
+                        <Camera className="mr-2 w-6 h-6" /> SNAP
+                      </Button>
+                    </>
+                  )}
+                </div>
               )}
-            </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
@@ -356,16 +560,22 @@ export default function Game() {
               ? getCompletedSubmission(viewingItem.id)
               : getPendingSubmission(viewingItem.id);
             const photoData = sub && "photoData" in sub ? sub.photoData : undefined;
+            const subMediaType = sub && "mediaType" in sub ? (sub as any).mediaType : "photo";
+            const isVideo = subMediaType === "video" || (photoData && photoData.startsWith("data:video"));
             return (
               <div className="flex flex-col">
                 {photoData ? (
                   <div className="relative bg-black flex items-center justify-center max-h-[50vh] overflow-hidden">
-                    <img src={photoData} alt="Submitted photo" className="w-full h-full object-contain" />
+                    {isVideo ? (
+                      <video src={photoData} controls className="w-full h-full object-contain" />
+                    ) : (
+                      <img src={photoData} alt="Submitted photo" className="w-full h-full object-contain" />
+                    )}
                   </div>
                 ) : (
                   <div className="p-8 text-center text-muted-foreground">
                     <Camera className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">Photo not available</p>
+                    <p className="text-sm">Media not available</p>
                   </div>
                 )}
 

@@ -16,7 +16,8 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight, Video } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
 
@@ -226,11 +227,11 @@ export default function ProctorDashboard() {
   const [duration, setDuration] = useState(60);
   const [teamCount, setTeamCount] = useState(4);
   const [countdown, setCountdown] = useState(10);
-  const [customItems, setCustomItems] = useState<{ description: string; points: number; verificationMode: string }[]>([
-    { description: "Find a red stapler", points: 100, verificationMode: "ai" },
-    { description: "Team high five", points: 200, verificationMode: "ai" },
-    { description: "Human pyramid (3 people)", points: 500, verificationMode: "ai" },
-    { description: "Something older than you", points: 150, verificationMode: "ai" },
+  const [customItems, setCustomItems] = useState<{ description: string; points: number; verificationMode: string; mediaType: string; videoLengthSeconds: number }[]>([
+    { description: "Find a red stapler", points: 100, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20 },
+    { description: "Team high five", points: 200, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20 },
+    { description: "Human pyramid (3 people)", points: 500, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20 },
+    { description: "Something older than you", points: 150, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20 },
   ]);
   const [teamNames, setTeamNames] = useState<string[]>(["Team 1", "Team 2", "Team 3", "Team 4"]);
   const [newItemText, setNewItemText] = useState("");
@@ -252,7 +253,7 @@ export default function ProctorDashboard() {
 
   const handleAddItem = () => {
     if (!newItemText) return;
-    setCustomItems([...customItems, { description: newItemText, points: newItemPoints, verificationMode: "ai" }]);
+    setCustomItems([...customItems, { description: newItemText, points: newItemPoints, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20 }]);
     setNewItemText("");
   };
 
@@ -450,6 +451,11 @@ export default function ProctorDashboard() {
                       <div className="flex items-center gap-3">
                         <span className="font-mono text-primary font-bold w-12 text-right">{item.points}</span>
                         <span>{item.description}</span>
+                        {(item as any).mediaType === "video" && (
+                          <Badge variant="outline" className="border-purple-400/30 text-purple-400 text-[10px]">
+                            <Video className="w-2.5 h-2.5 mr-0.5" /> Video
+                          </Badge>
+                        )}
                         {item.verificationMode === "proctor" && (
                           <Badge variant="outline" className="border-yellow-400/30 text-yellow-400 text-[10px]">
                             <Eye className="w-2.5 h-2.5 mr-0.5" /> Proctor
@@ -501,7 +507,13 @@ export default function ProctorDashboard() {
                       onClick={() => { setReviewingSubmission(sub); setRejectFeedback(""); }}
                       data-testid={`pending-submission-${sub.id}`}
                     >
-                      <img src={sub.photoData} alt="Submission" className="w-16 h-16 rounded-lg object-cover" />
+                      {sub.mediaType === "video" ? (
+                        <div className="w-16 h-16 rounded-lg bg-purple-500/20 flex items-center justify-center shrink-0">
+                          <Video className="w-6 h-6 text-purple-400" />
+                        </div>
+                      ) : (
+                        <img src={sub.photoData} alt="Submission" className="w-16 h-16 rounded-lg object-cover" />
+                      )}
                       <div className="flex-1">
                         <p className="font-medium">{item?.description}</p>
                         <p className="text-sm text-muted-foreground">
@@ -531,7 +543,16 @@ export default function ProctorDashboard() {
                 </p>
               </div>
               <div className="p-4">
-                <img src={reviewingSubmission.photoData} alt="Submission" className="w-full rounded-lg max-h-[50vh] object-contain bg-black" />
+                {reviewingSubmission.mediaType === "video" || reviewingSubmission.photoData?.startsWith("data:video") ? (
+                  <video
+                    src={reviewingSubmission.photoData}
+                    controls
+                    autoPlay
+                    className="w-full rounded-lg max-h-[50vh] object-contain bg-black"
+                  />
+                ) : (
+                  <img src={reviewingSubmission.photoData} alt="Submission" className="w-full rounded-lg max-h-[50vh] object-contain bg-black" />
+                )}
               </div>
               <div className="p-4 space-y-3 border-t border-white/10">
                 <Input
@@ -687,34 +708,79 @@ export default function ProctorDashboard() {
                 <ScrollArea className="h-[400px] w-full pr-4 rounded-md border border-white/5 p-4 bg-black/20">
                   <div className="space-y-2">
                     {customItems.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between p-3 bg-card rounded-lg border border-white/5 hover:border-primary/30 transition-colors group">
-                        <div className="flex items-center gap-4">
-                          <span className="font-mono text-primary font-bold w-12 text-right">{item.points}</span>
-                          <span className="flex-1">{item.description}</span>
+                      <div key={idx} className="p-3 bg-card rounded-lg border border-white/5 hover:border-primary/30 transition-colors group space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4 flex-1 min-w-0">
+                            <span className="font-mono text-primary font-bold w-12 text-right shrink-0">{item.points}</span>
+                            <span className="truncate">{item.description}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemoveItem(idx)}
+                            className="hover:text-destructive text-muted-foreground shrink-0"
+                            data-testid={`button-remove-item-${idx}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 ml-16">
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => {
                               const updated = [...customItems];
-                              updated[idx] = { ...item, verificationMode: item.verificationMode === "ai" ? "proctor" : "ai" };
+                              const newMediaType = item.mediaType === "photo" ? "video" : "photo";
+                              updated[idx] = {
+                                ...item,
+                                mediaType: newMediaType,
+                                verificationMode: newMediaType === "video" ? "proctor" : item.verificationMode,
+                              };
                               setCustomItems(updated);
                             }}
-                            className={`text-xs px-2 py-1 h-7 ${item.verificationMode === "proctor" ? "text-yellow-400 border-yellow-400/30 bg-yellow-400/10" : "text-cyan-400 border-cyan-400/30 bg-cyan-400/10"} border`}
-                            data-testid={`button-toggle-verify-${idx}`}
+                            className={`text-xs px-2 py-1 h-7 ${item.mediaType === "video" ? "text-purple-400 border-purple-400/30 bg-purple-400/10" : "text-blue-400 border-blue-400/30 bg-blue-400/10"} border`}
+                            data-testid={`button-toggle-media-${idx}`}
                           >
-                            {item.verificationMode === "ai" ? <><Bot className="w-3 h-3 mr-1" /> AI</> : <><Eye className="w-3 h-3 mr-1" /> Proctor</>}
+                            {item.mediaType === "photo" ? <><Camera className="w-3 h-3 mr-1" /> Photo</> : <><Video className="w-3 h-3 mr-1" /> Video</>}
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleRemoveItem(idx)}
-                            className="hover:text-destructive text-muted-foreground"
-                            data-testid={`button-remove-item-${idx}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          {item.mediaType === "video" ? (
+                            <Select
+                              value={String(item.videoLengthSeconds)}
+                              onValueChange={(val) => {
+                                const updated = [...customItems];
+                                updated[idx] = { ...item, videoLengthSeconds: Number(val) };
+                                setCustomItems(updated);
+                              }}
+                            >
+                              <SelectTrigger className="h-7 w-20 text-xs border-purple-400/30 bg-purple-400/5" data-testid={`select-video-length-${idx}`}>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {[10, 20, 30, 40, 50, 60].map(sec => (
+                                  <SelectItem key={sec} value={String(sec)}>{sec}s</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                const updated = [...customItems];
+                                updated[idx] = { ...item, verificationMode: item.verificationMode === "ai" ? "proctor" : "ai" };
+                                setCustomItems(updated);
+                              }}
+                              className={`text-xs px-2 py-1 h-7 ${item.verificationMode === "proctor" ? "text-yellow-400 border-yellow-400/30 bg-yellow-400/10" : "text-cyan-400 border-cyan-400/30 bg-cyan-400/10"} border`}
+                              data-testid={`button-toggle-verify-${idx}`}
+                            >
+                              {item.verificationMode === "ai" ? <><Bot className="w-3 h-3 mr-1" /> AI</> : <><Eye className="w-3 h-3 mr-1" /> Proctor</>}
+                            </Button>
+                          )}
+                          {item.mediaType === "video" && (
+                            <Badge variant="outline" className="border-yellow-400/30 text-yellow-400 text-[10px] h-7 flex items-center">
+                              <Eye className="w-2.5 h-2.5 mr-0.5" /> Proctor Only
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     ))}

@@ -25,12 +25,15 @@ export interface ScavengerItem {
   sortOrder: number;
   huntId: string;
   verificationMode: "ai" | "proctor";
+  mediaType: "photo" | "video";
+  videoLengthSeconds: number;
 }
 
 export interface CompletedSubmission {
   itemId: number;
   teamId: number;
   photoData: string;
+  mediaType?: "photo" | "video";
 }
 
 export interface PendingSubmission {
@@ -39,6 +42,7 @@ export interface PendingSubmission {
   teamId: number;
   playerId: string;
   photoData: string;
+  mediaType: "photo" | "video";
   createdAt: string;
 }
 
@@ -66,6 +70,7 @@ interface GameContextType {
   completedSubmissions: CompletedSubmission[];
   pendingSubmissions: PendingSubmission[];
   rejectedSubmissions: RejectedSubmission[];
+  uploadingItems: Set<number>;
   settings: GameSettings;
   timeRemaining: number;
   isLocked: boolean;
@@ -74,13 +79,14 @@ interface GameContextType {
   countdownValue: number;
   connected: boolean;
 
-  createHunt: (items: { description: string; points: number; verificationMode?: string }[], settings: GameSettings, teamNames?: string[], huntName?: string) => Promise<string | null>;
+  createHunt: (items: { description: string; points: number; verificationMode?: string; mediaType?: string; videoLengthSeconds?: number }[], settings: GameSettings, teamNames?: string[], huntName?: string) => Promise<string | null>;
   joinHunt: (code: string, name: string) => Promise<boolean>;
   joinTeam: (teamId: number) => void;
   lockTeams: () => void;
   startCountdown: () => void;
   stopGame: () => Promise<boolean>;
   submitPhoto: (itemId: number, photoData: string) => Promise<{ verified: boolean; aiResponse: string; points: number; status?: string }>;
+  submitVideo: (itemId: number, videoBlob: Blob) => void;
   reviewSubmission: (submissionId: number, approved: boolean, feedback?: string) => Promise<boolean>;
   redoSubmission: (itemId: number) => Promise<boolean>;
   resetGame: () => void;
@@ -111,6 +117,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [countdownValue, setCountdownValue] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [connected, setConnected] = useState(false);
+  const [uploadingItems, setUploadingItems] = useState<Set<number>>(new Set());
 
   const [gameStartTime, setGameStartTime] = useState<string | null>(null);
   const [durationMinutes, setDurationMinutes] = useState(60);
@@ -199,6 +206,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             itemId: msg.data.itemId,
             teamId: msg.data.teamId,
             photoData: msg.data.photoData,
+            mediaType: msg.data.mediaType || "photo",
           }]);
           setPendingSubmissions(prev => prev.filter(s => !(s.itemId === msg.data.itemId && s.teamId === msg.data.teamId)));
           setTeams(prev => prev.map(t => t.id === msg.data.teamId ? { ...t, score: msg.data.newScore } : t));
@@ -423,6 +431,43 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const submitVideo = (itemId: number, videoBlob: Blob) => {
+    if (!huntId || !currentUser?.teamId) return;
+
+    setUploadingItems(prev => new Set(prev).add(itemId));
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const base64 = reader.result as string;
+        const res = await fetch(`/api/hunts/${huntId}/submit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            itemId,
+            teamId: currentUser.teamId,
+            playerId: currentUser.id,
+            photoData: base64,
+            mediaType: "video",
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          toast({ title: "Upload Failed", description: data.error || "Failed to upload video", variant: "destructive" });
+        }
+      } catch (err: any) {
+        toast({ title: "Upload Failed", description: err.message, variant: "destructive" });
+      } finally {
+        setUploadingItems(prev => {
+          const next = new Set(prev);
+          next.delete(itemId);
+          return next;
+        });
+      }
+    };
+    reader.readAsDataURL(videoBlob);
+  };
+
   const reviewSubmission = async (submissionId: number, approved: boolean, feedback?: string): Promise<boolean> => {
     if (!huntId) return false;
     try {
@@ -474,6 +519,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setCompletedSubmissions([]);
     setPendingSubmissions([]);
     setRejectedSubmissions([]);
+    setUploadingItems(new Set());
     setIsLocked(false);
     setCurrentUser(null);
     setSessionToken(null);
@@ -495,6 +541,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         completedSubmissions,
         pendingSubmissions,
         rejectedSubmissions,
+        uploadingItems,
         settings,
         timeRemaining,
         isLocked,
@@ -509,6 +556,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         startCountdown,
         stopGame,
         submitPhoto,
+        submitVideo,
         reviewSubmission,
         redoSubmission,
         resetGame,
