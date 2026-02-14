@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Trophy, List, Camera, X, Check, Timer, UploadCloud, ChevronRight } from "lucide-react";
+import { Trophy, List, Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
 import Confetti from "react-confetti";
 import { useLocation } from "wouter";
@@ -235,9 +235,14 @@ export default function Game() {
                   </Button>
                 </>
               ) : (
-                <Button onClick={capture} size="lg" className="col-span-2 h-14 text-xl font-bold bg-primary hover:bg-primary/90" data-testid="button-snap">
-                  <Camera className="mr-2 w-6 h-6" /> SNAP
-                </Button>
+                <>
+                  <Button variant="outline" onClick={closeDialog} data-testid="button-back-to-list">
+                    <ArrowLeft className="mr-2 w-4 h-4" /> Back
+                  </Button>
+                  <Button onClick={capture} size="lg" className="h-14 text-xl font-bold bg-primary hover:bg-primary/90" data-testid="button-snap">
+                    <Camera className="mr-2 w-6 h-6" /> SNAP
+                  </Button>
+                </>
               )}
             </div>
           )}

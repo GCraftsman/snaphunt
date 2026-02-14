@@ -71,6 +71,7 @@ function ProctorHome({ onCreateNew }: { onCreateNew: () => void }) {
       if (!res.ok) throw new Error("Failed to fetch");
       return res.json();
     },
+    refetchOnMount: "always",
   });
 
   const activeHunts = history?.proctored.filter(h => ["lobby", "active", "countdown"].includes(h.status)) || [];
