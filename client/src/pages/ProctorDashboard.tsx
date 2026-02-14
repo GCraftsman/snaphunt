@@ -17,7 +17,7 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight, Video } from "lucide-react";
+import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight, Video, Loader2 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
 
@@ -61,12 +61,14 @@ interface HuntHistoryItem {
   teams: { id: number; name: string; score: number; color: string }[];
 }
 
-function ProctorHome({ onCreateNew }: { onCreateNew: () => void }) {
+function ProctorHome({ onCreateNew, onCloneHunt, isCloning }: { onCreateNew: () => void; onCloneHunt: (huntId: string) => void; isCloning?: boolean }) {
   const { user, logout } = useAuth();
   const { setSessionFromStorage } = useGame();
   const [_, setLocation] = useLocation();
+  const [deletingHuntId, setDeletingHuntId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  const { data: history, isLoading } = useQuery<{ proctored: HuntHistoryItem[]; played: HuntHistoryItem[] }>({
+  const { data: history, isLoading, refetch } = useQuery<{ proctored: HuntHistoryItem[]; played: HuntHistoryItem[] }>({
     queryKey: ["/api/my/hunts"],
     queryFn: async () => {
       const res = await fetch("/api/my/hunts", { credentials: "include" });
@@ -75,6 +77,24 @@ function ProctorHome({ onCreateNew }: { onCreateNew: () => void }) {
     },
     refetchOnMount: "always",
   });
+
+  const handleDeleteHunt = async () => {
+    if (!deletingHuntId) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/hunts/${deletingHuntId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (res.ok) {
+        refetch();
+      }
+    } catch (err) {
+      console.error("Failed to delete hunt:", err);
+    }
+    setIsDeleting(false);
+    setDeletingHuntId(null);
+  };
 
   const activeHunts = history?.proctored.filter(h => ["lobby", "active", "countdown"].includes(h.status)) || [];
   const pastHunts = history?.proctored.filter(h => h.status === "finished") || [];
@@ -183,20 +203,44 @@ function ProctorHome({ onCreateNew }: { onCreateNew: () => void }) {
                 const winner = [...hunt.teams].sort((a, b) => b.score - a.score)[0];
                 return (
                   <Card key={hunt.id} className="border-white/5 bg-card/30" data-testid={`card-past-hunt-${hunt.id}`}>
-                    <CardContent className="py-4 flex items-center justify-between">
-                      <div>
-                        <h4 className="font-bold">{hunt.name}</h4>
-                        <p className="text-sm text-muted-foreground">
-                          {formatDate(hunt.createdAt)} &middot; {hunt.playerCount} players &middot; {hunt.durationMinutes} min
-                        </p>
-                      </div>
-                      {winner && winner.score > 0 && (
-                        <div className="flex items-center gap-2 text-sm">
-                          <Trophy className="w-4 h-4 text-yellow-400" />
-                          <span style={{ color: winner.color }} className="font-bold">{winner.name}</span>
-                          <span className="font-mono">{winner.score} pts</span>
+                    <CardContent className="py-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className="font-bold">{hunt.name}</h4>
+                          <p className="text-sm text-muted-foreground">
+                            {formatDate(hunt.createdAt)} &middot; {hunt.playerCount} players &middot; {hunt.durationMinutes} min
+                          </p>
                         </div>
-                      )}
+                        {winner && winner.score > 0 && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <Trophy className="w-4 h-4 text-yellow-400" />
+                            <span style={{ color: winner.color }} className="font-bold">{winner.name}</span>
+                            <span className="font-mono">{winner.score} pts</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs"
+                          onClick={() => onCloneHunt(hunt.id)}
+                          disabled={isCloning}
+                          data-testid={`button-clone-${hunt.id}`}
+                        >
+                          {isCloning ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Plus className="w-3 h-3 mr-1" />}
+                          {isCloning ? "Loading..." : "Create from this"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                          onClick={() => setDeletingHuntId(hunt.id)}
+                          data-testid={`button-delete-${hunt.id}`}
+                        >
+                          <Trash2 className="w-3 h-3 mr-1" /> Delete
+                        </Button>
+                      </div>
                     </CardContent>
                   </Card>
                 );
@@ -207,6 +251,28 @@ function ProctorHome({ onCreateNew }: { onCreateNew: () => void }) {
 
         {isLoading && <p className="text-center text-muted-foreground">Loading your games...</p>}
       </div>
+
+      <AlertDialog open={!!deletingHuntId} onOpenChange={(open) => !open && setDeletingHuntId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this hunt?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this hunt and all its data including teams, players, items, and submissions. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting} data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteHunt}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {isDeleting ? "Deleting..." : "Delete permanently"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -237,11 +303,35 @@ export default function ProctorDashboard() {
   const [newItemText, setNewItemText] = useState("");
   const [newItemPoints, setNewItemPoints] = useState(100);
   const [creating, setCreating] = useState(false);
+  const [cloningHunt, setCloningHunt] = useState(false);
 
   useEffect(() => {
     const names = Array.from({ length: teamCount }, (_, i) => teamNames[i] || `Team ${i + 1}`);
     setTeamNames(names);
   }, [teamCount]);
+
+  const handleCloneHunt = async (huntIdToClone: string) => {
+    setCloningHunt(true);
+    try {
+      const res = await fetch(`/api/hunts/${huntIdToClone}/details`, { credentials: "include" });
+      if (!res.ok) {
+        setCloningHunt(false);
+        return;
+      }
+      const data = await res.json();
+      setHuntName(data.hunt.name || "Scavenger Hunt");
+      setDuration(data.hunt.durationMinutes || 60);
+      setCountdown(data.hunt.countdownSeconds || 10);
+      setCustomItems(data.items);
+      const clonedTeamCount = data.teamNames.length || 4;
+      setTeamCount(clonedTeamCount);
+      setTeamNames(data.teamNames);
+      setShowSetup(true);
+    } catch (err) {
+      console.error("Failed to clone hunt:", err);
+    }
+    setCloningHunt(false);
+  };
 
   if (authLoading) {
     return <div className="min-h-screen flex items-center justify-center"><p className="text-muted-foreground">Loading...</p></div>;
@@ -282,7 +372,7 @@ export default function ProctorDashboard() {
   const joinUrl = huntCode ? `${window.location.origin}?code=${huntCode}` : window.location.origin;
 
   if (!showSetup && !huntId) {
-    return <ProctorHome onCreateNew={() => setShowSetup(true)} />;
+    return <ProctorHome onCreateNew={() => setShowSetup(true)} onCloneHunt={handleCloneHunt} isCloning={cloningHunt} />;
   }
 
   if (huntId && status !== "setup") {

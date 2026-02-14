@@ -22,6 +22,8 @@ export interface IStorage {
   getHuntsByProctor(userId: string): Promise<Hunt[]>;
   getHuntsByPlayer(userId: string): Promise<Hunt[]>;
 
+  deleteHunt(id: string): Promise<void>;
+
   createTeam(data: InsertTeam): Promise<Team>;
   getTeamsByHunt(huntId: string): Promise<Team[]>;
   getTeam(id: number): Promise<Team | undefined>;
@@ -81,6 +83,16 @@ export class DatabaseStorage implements IStorage {
       if (hunt) results.push(hunt);
     }
     return results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+
+  async deleteHunt(id: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.delete(submissions).where(eq(submissions.huntId, id));
+      await tx.delete(scavengerItems).where(eq(scavengerItems.huntId, id));
+      await tx.delete(players).where(eq(players.huntId, id));
+      await tx.delete(teams).where(eq(teams.huntId, id));
+      await tx.delete(hunts).where(eq(hunts.id, id));
+    });
   }
 
   async createTeam(data: InsertTeam): Promise<Team> {

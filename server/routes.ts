@@ -193,6 +193,52 @@ export async function registerRoutes(
     }
   });
 
+  app.delete("/api/hunts/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const userId = (req as any).user?.claims?.sub;
+      const hunt = await storage.getHunt(huntId);
+
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+
+      await storage.deleteHunt(huntId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting hunt:", error);
+      res.status(500).json({ error: "Failed to delete hunt" });
+    }
+  });
+
+  app.get("/api/hunts/:id/details", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const userId = (req as any).user?.claims?.sub;
+      const hunt = await storage.getHunt(huntId);
+
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+
+      const huntItems = await storage.getItemsByHunt(huntId);
+      const huntTeams = await storage.getTeamsByHunt(huntId);
+
+      res.json({
+        hunt,
+        items: huntItems.map(i => ({
+          description: i.description,
+          points: i.points,
+          verificationMode: i.verificationMode || "ai",
+          mediaType: i.mediaType || "photo",
+          videoLengthSeconds: i.videoLengthSeconds || 20,
+        })),
+        teamNames: huntTeams.map(t => t.name),
+      });
+    } catch (error) {
+      console.error("Error fetching hunt details:", error);
+      res.status(500).json({ error: "Failed to fetch hunt details" });
+    }
+  });
+
   app.post("/api/hunts/:id/stop", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const huntId = getParam(req.params, "id");
