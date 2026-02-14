@@ -222,6 +222,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           setCompletedSubmissions(prev => prev.filter(s => !(s.itemId === msg.data.itemId && s.teamId === msg.data.teamId)));
           setTeams(prev => prev.map(t => t.id === msg.data.teamId ? { ...t, score: msg.data.newScore } : t));
           break;
+        case "submission_withdrawn":
+          setPendingSubmissions(prev => prev.filter(s => s.id !== msg.data.submissionId));
+          break;
       }
     };
   }, [huntId, toast, currentUser?.id]);

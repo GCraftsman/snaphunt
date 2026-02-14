@@ -517,25 +517,43 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
 
       const submission = await storage.getSubmissionByTeamAndItem(player.teamId, itemId);
       if (!submission) return res.status(404).json({ error: "No submission found" });
-      if (!submission.verified) return res.status(400).json({ error: "Submission not approved" });
+      if (!submission.verified && submission.status !== "pending") {
+        return res.status(400).json({ error: "Submission cannot be redone" });
+      }
 
       const item = await storage.getItem(itemId);
       if (!item) return res.status(404).json({ error: "Item not found" });
 
+      const wasPending = submission.status === "pending";
       await storage.deleteSubmission(submission.id);
-      const team = await storage.updateTeamScore(player.teamId, -item.points);
 
-      broadcastToHunt(huntId, {
-        type: "submission_redo",
-        data: {
-          itemId,
-          teamId: player.teamId,
-          points: item.points,
-          newScore: team.score,
-        },
-      });
+      let newScore: number;
+      if (wasPending) {
+        const team = await storage.getTeam(player.teamId);
+        newScore = team!.score;
+        broadcastToHunt(huntId, {
+          type: "submission_withdrawn",
+          data: {
+            itemId,
+            teamId: player.teamId,
+            submissionId: submission.id,
+          },
+        });
+      } else {
+        const team = await storage.updateTeamScore(player.teamId, -item.points);
+        newScore = team.score;
+        broadcastToHunt(huntId, {
+          type: "submission_redo",
+          data: {
+            itemId,
+            teamId: player.teamId,
+            points: item.points,
+            newScore: team.score,
+          },
+        });
+      }
 
-      res.json({ success: true, newScore: team.score });
+      res.json({ success: true, newScore });
     } catch (error) {
       console.error("Error redoing submission:", error);
       res.status(500).json({ error: "Failed to redo submission" });

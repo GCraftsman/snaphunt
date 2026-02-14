@@ -34,6 +34,7 @@ export default function Game() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [_, setLocation] = useLocation();
   const [viewingItem, setViewingItem] = useState<{ id: number; description: string; points: number } | null>(null);
+  const [viewingMode, setViewingMode] = useState<"completed" | "pending">("completed");
   const [showRedoConfirm, setShowRedoConfirm] = useState(false);
   const [isRedoing, setIsRedoing] = useState(false);
 
@@ -61,6 +62,10 @@ export default function Game() {
 
   const getCompletedSubmission = (itemId: number) => {
     return completedSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
+  };
+
+  const getPendingSubmission = (itemId: number) => {
+    return pendingSubmissions.find(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
   };
 
   const handleRedo = async () => {
@@ -168,8 +173,12 @@ export default function Game() {
                   }`}
                   onClick={() => {
                     if (completed) {
+                      setViewingMode("completed");
                       setViewingItem(item);
-                    } else if (!pending) {
+                    } else if (pending) {
+                      setViewingMode("pending");
+                      setViewingItem(item);
+                    } else {
                       setSelectedItem(item);
                     }
                   }}
@@ -199,7 +208,7 @@ export default function Game() {
                       )}
                       {pending && (
                         <div className="text-xs text-yellow-400 flex items-center gap-1 mt-2">
-                          <Clock className="w-3 h-3" /> Waiting for proctor review
+                          <Clock className="w-3 h-3" /> Waiting for review - tap to view
                         </div>
                       )}
                       {rejection && !completed && !pending && (
@@ -329,20 +338,29 @@ export default function Game() {
           <DialogHeader className="p-4 bg-background z-10">
             <DialogTitle className="flex justify-between items-center">
               <span>{viewingItem?.description}</span>
-              <Badge className="bg-green-500 text-black ml-2">{viewingItem?.points} PTS</Badge>
+              <Badge className={viewingMode === "completed" ? "bg-green-500 text-black ml-2" : "bg-yellow-500 text-black ml-2"}>
+                {viewingItem?.points} PTS
+              </Badge>
             </DialogTitle>
-            <DialogDescription className="text-green-400 flex items-center gap-1 text-sm">
-              <Check className="w-4 h-4" /> Approved
+            <DialogDescription className={`flex items-center gap-1 text-sm ${viewingMode === "completed" ? "text-green-400" : "text-yellow-400"}`}>
+              {viewingMode === "completed" ? (
+                <><Check className="w-4 h-4" /> Approved</>
+              ) : (
+                <><Clock className="w-4 h-4" /> Awaiting proctor review</>
+              )}
             </DialogDescription>
           </DialogHeader>
 
           {viewingItem && (() => {
-            const sub = getCompletedSubmission(viewingItem.id);
+            const sub = viewingMode === "completed"
+              ? getCompletedSubmission(viewingItem.id)
+              : getPendingSubmission(viewingItem.id);
+            const photoData = sub && "photoData" in sub ? sub.photoData : undefined;
             return (
               <div className="flex flex-col">
-                {sub?.photoData ? (
+                {photoData ? (
                   <div className="relative bg-black flex items-center justify-center max-h-[50vh] overflow-hidden">
-                    <img src={sub.photoData} alt="Submitted photo" className="w-full h-full object-contain" />
+                    <img src={photoData} alt="Submitted photo" className="w-full h-full object-contain" />
                   </div>
                 ) : (
                   <div className="p-8 text-center text-muted-foreground">
@@ -358,7 +376,8 @@ export default function Game() {
                     onClick={() => setShowRedoConfirm(true)}
                     data-testid="button-redo"
                   >
-                    <RotateCcw className="mr-2 w-4 h-4" /> Redo This Item
+                    <RotateCcw className="mr-2 w-4 h-4" />
+                    {viewingMode === "completed" ? "Redo This Item" : "Withdraw & Redo"}
                   </Button>
                 </div>
               </div>
@@ -371,11 +390,21 @@ export default function Game() {
         <AlertDialogContent className="bg-background border-white/10">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-yellow-400" /> Redo Submission?
+              <AlertTriangle className="w-5 h-5 text-yellow-400" />
+              {viewingMode === "completed" ? "Redo Submission?" : "Withdraw Submission?"}
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
-              <p>This will remove your previous submission for <strong className="text-white">"{viewingItem?.description}"</strong> and subtract <strong className="text-yellow-400">{viewingItem?.points} points</strong> from your team's score.</p>
-              <p>You'll then be able to take a new photo and resubmit.</p>
+              {viewingMode === "completed" ? (
+                <>
+                  <p>This will remove your previous submission for <strong className="text-white">"{viewingItem?.description}"</strong> and subtract <strong className="text-yellow-400">{viewingItem?.points} points</strong> from your team's score.</p>
+                  <p>You'll then be able to take a new photo and resubmit.</p>
+                </>
+              ) : (
+                <>
+                  <p>This will withdraw your pending submission for <strong className="text-white">"{viewingItem?.description}"</strong> from the proctor's review queue.</p>
+                  <p>No points will be affected since this item hasn't been scored yet. You'll be able to take a new photo and resubmit.</p>
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -386,7 +415,7 @@ export default function Game() {
               className="bg-yellow-500 hover:bg-yellow-600 text-black font-bold"
               data-testid="button-confirm-redo"
             >
-              {isRedoing ? "Removing..." : "Yes, Redo"}
+              {isRedoing ? "Removing..." : viewingMode === "completed" ? "Yes, Redo" : "Yes, Withdraw"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
