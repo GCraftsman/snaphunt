@@ -1,29 +1,35 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 
-// --- Types ---
 export type GameStatus = "setup" | "lobby" | "countdown" | "active" | "finished";
 
 export interface Player {
   id: string;
   name: string;
-  teamId: string | null;
+  teamId: number | null;
   isProctor?: boolean;
 }
 
 export interface Team {
-  id: string;
+  id: number;
   name: string;
   score: number;
   color: string;
+  huntId: string;
 }
 
 export interface ScavengerItem {
-  id: string;
+  id: number;
   description: string;
   points: number;
-  completedByTeamIds: string[]; // List of team IDs that completed this
-  photoUrl?: string; // Mock storage for photo
+  sortOrder: number;
+  huntId: string;
+}
+
+export interface CompletedSubmission {
+  itemId: number;
+  teamId: number;
+  photoData: string;
 }
 
 export interface GameSettings {
@@ -32,319 +38,363 @@ export interface GameSettings {
   countdownSeconds: number;
 }
 
-interface GameState {
+interface GameContextType {
+  huntId: string | null;
+  huntCode: string | null;
   status: GameStatus;
   teams: Team[];
   players: Player[];
   items: ScavengerItem[];
+  completedSubmissions: CompletedSubmission[];
   settings: GameSettings;
   timeRemaining: number;
   isLocked: boolean;
-  startTime?: number; // For syncing timers
-  countdownStartTime?: number; // For syncing countdown
-}
-
-interface GameContextType extends GameState {
   currentUser: Player | null;
+  sessionToken: string | null;
   countdownValue: number;
-  
-  // Actions
-  login: (name: string, isProctor?: boolean) => void;
-  createHunt: (items: ScavengerItem[], settings: GameSettings) => void;
-  joinTeam: (teamId: string) => void;
+  connected: boolean;
+
+  createHunt: (items: { description: string; points: number }[], settings: GameSettings, teamNames?: string[]) => Promise<string | null>;
+  joinHunt: (code: string, name: string) => Promise<boolean>;
+  joinTeam: (teamId: number) => void;
   lockTeams: () => void;
   startCountdown: () => void;
-  submitPhoto: (itemId: string, photo: string) => Promise<boolean>;
+  submitPhoto: (itemId: number, photoData: string) => Promise<{ verified: boolean; aiResponse: string; points: number }>;
   resetGame: () => void;
+  setSessionFromStorage: () => boolean;
 }
 
 const GameContext = createContext<GameContextType | undefined>(undefined);
 
-// --- Mock Data ---
-const MOCK_TEAMS_COLORS = [
-  "hsl(326 100% 60%)", // Pink
-  "hsl(190 100% 50%)", // Cyan
-  "hsl(260 100% 65%)", // Purple
-  "hsl(45 100% 55%)",  // Yellow
-  "hsl(150 100% 50%)", // Green
-];
-
-const INITIAL_ITEMS: ScavengerItem[] = [
-  { id: "1", description: "Find a red stapler", points: 100, completedByTeamIds: [] },
-  { id: "2", description: "Team high five", points: 200, completedByTeamIds: [] },
-  { id: "3", description: "Human pyramid (3 people)", points: 500, completedByTeamIds: [] },
-  { id: "4", description: "Something older than you", points: 150, completedByTeamIds: [] },
-];
-
-const STORAGE_KEY = "snaphunt_state";
+const SESSION_KEY = "snaphunt_session";
 
 export function GameProvider({ children }: { children: React.ReactNode }) {
   const { toast } = useToast();
-  
-  // Local User State (Not synced across tabs normally, but we want to simulate distinct users)
-  // Actually, for this demo to work on one machine with tabs, we need players to be in the shared state, 
-  // but currentUser is local to the tab.
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const [huntId, setHuntId] = useState<string | null>(null);
+  const [huntCode, setHuntCode] = useState<string | null>(null);
+  const [status, setStatus] = useState<GameStatus>("setup");
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [items, setItems] = useState<ScavengerItem[]>([]);
+  const [completedSubmissions, setCompletedSubmissions] = useState<CompletedSubmission[]>([]);
+  const [settings, setSettings] = useState<GameSettings>({ durationMinutes: 60, teamCount: 4, countdownSeconds: 10 });
+  const [isLocked, setIsLocked] = useState(false);
   const [currentUser, setCurrentUser] = useState<Player | null>(null);
-
-  // Shared Game State
-  const [gameState, setGameState] = useState<GameState>(() => {
-    // Try to load from storage
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-    return {
-      status: "setup",
-      teams: [],
-      players: [],
-      items: INITIAL_ITEMS,
-      settings: {
-        durationMinutes: 60,
-        teamCount: 4,
-        countdownSeconds: 10,
-      },
-      timeRemaining: 0,
-      isLocked: false,
-    };
-  });
-  
-  // Derived state for local display
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [countdownValue, setCountdownValue] = useState(0);
+  const [timeRemaining, setTimeRemaining] = useState(0);
+  const [connected, setConnected] = useState(false);
 
-  // --- Sync Effect ---
-  useEffect(() => {
-    // Write to storage whenever state changes
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState));
-  }, [gameState]);
+  const [gameStartTime, setGameStartTime] = useState<string | null>(null);
+  const [durationMinutes, setDurationMinutes] = useState(60);
+  const [countdownStartTime, setCountdownStartTime] = useState<string | null>(null);
+  const [countdownSeconds, setCountdownSeconds] = useState(10);
 
-  useEffect(() => {
-    // Listen for storage changes (from other tabs)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY && e.newValue) {
-        setGameState(JSON.parse(e.newValue));
+  const connectWebSocket = useCallback((hId: string) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.close();
+    }
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConnected(true);
+      ws.send(JSON.stringify({ type: "join_hunt", huntId: hId }));
+    };
+
+    ws.onclose = () => {
+      setConnected(false);
+      setTimeout(() => {
+        if (huntId) connectWebSocket(hId);
+      }, 3000);
+    };
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+
+      switch (msg.type) {
+        case "full_state": {
+          const d = msg.data;
+          setStatus(d.hunt.status as GameStatus);
+          setHuntCode(d.hunt.code);
+          setTeams(d.teams);
+          setPlayers(d.players);
+          setItems(d.items);
+          setCompletedSubmissions(d.submissions || []);
+          setIsLocked(d.hunt.teamsLocked);
+          setSettings({
+            durationMinutes: d.hunt.durationMinutes,
+            teamCount: d.hunt.teamCount,
+            countdownSeconds: d.hunt.countdownSeconds,
+          });
+          if (d.hunt.gameStartTime) {
+            setGameStartTime(d.hunt.gameStartTime);
+            setDurationMinutes(d.hunt.durationMinutes);
+          }
+          if (d.hunt.countdownStartTime) {
+            setCountdownStartTime(d.hunt.countdownStartTime);
+            setCountdownSeconds(d.hunt.countdownSeconds);
+          }
+          break;
+        }
+        case "player_joined":
+          setPlayers(prev => [...prev, msg.data]);
+          break;
+        case "player_team_changed":
+          setPlayers(prev => prev.map(p => p.id === msg.data.playerId ? { ...p, teamId: msg.data.teamId } : p));
+          if (currentUser?.id === msg.data.playerId) {
+            setCurrentUser(prev => prev ? { ...prev, teamId: msg.data.teamId } : prev);
+          }
+          break;
+        case "teams_locked":
+          setIsLocked(true);
+          toast({ title: "Teams Locked!", description: "No more switching allowed." });
+          break;
+        case "countdown_started":
+          setStatus("countdown");
+          setCountdownStartTime(msg.data.countdownStartTime);
+          setCountdownSeconds(msg.data.countdownSeconds);
+          break;
+        case "game_started":
+          setStatus("active");
+          setGameStartTime(msg.data.gameStartTime);
+          setDurationMinutes(msg.data.durationMinutes);
+          break;
+        case "game_finished":
+          setStatus("finished");
+          break;
+        case "item_completed":
+          setCompletedSubmissions(prev => [...prev, {
+            itemId: msg.data.itemId,
+            teamId: msg.data.teamId,
+            photoData: msg.data.photoData,
+          }]);
+          setTeams(prev => prev.map(t => t.id === msg.data.teamId ? { ...t, score: msg.data.newScore } : t));
+          break;
       }
     };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
+  }, [huntId, toast, currentUser?.id]);
 
-  // --- Timers based on absolute start times for sync ---
+  // Timer effects
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-
-    const tick = () => {
-      const now = Date.now();
-
-      // Countdown Logic
-      if (gameState.status === "countdown" && gameState.countdownStartTime) {
-        const elapsed = Math.floor((now - gameState.countdownStartTime) / 1000);
-        const remaining = Math.max(0, gameState.settings.countdownSeconds - elapsed);
+    if (status === "countdown" && countdownStartTime) {
+      const interval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - new Date(countdownStartTime).getTime()) / 1000);
+        const remaining = Math.max(0, countdownSeconds - elapsed);
         setCountdownValue(remaining);
-        
-        if (remaining <= 0) {
-           // Transition to Active is handled by the "Master" (usually the tab that started it),
-           // OR we can just handle it locally if we trust the clock.
-           // To avoid race conditions in this simple sync, we'll let the logic below update status.
-           // Ideally, only the proctor triggers the status change, but for a p2p sync style:
-           if (currentUser?.isProctor) {
-             updateState({ 
-               status: "active", 
-               startTime: Date.now(),
-               countdownStartTime: undefined 
-             });
-           }
-        }
-      }
+      }, 100);
+      return () => clearInterval(interval);
+    }
+  }, [status, countdownStartTime, countdownSeconds]);
 
-      // Game Timer Logic
-      if (gameState.status === "active" && gameState.startTime) {
-        const elapsed = Math.floor((now - gameState.startTime) / 1000);
-        const totalDurationSeconds = gameState.settings.durationMinutes * 60;
-        const remaining = Math.max(0, totalDurationSeconds - elapsed);
-        
-        // Only update display state if needed, but here we store it in main state for shared view?
-        // No, timeRemaining is derived from startTime usually. 
-        // But we put timeRemaining in gameState. Let's update it.
-        // Again, to avoid flicker, let's just calculate it for rendering
-        // But we want to store it so everyone sees the same "Time Left" approx.
-        // A better way for this mock: Just have the Proctor drive the timer? 
-        // No, let's just use local derived time for smoothness.
-        
-        if (currentUser?.isProctor && remaining !== gameState.timeRemaining) {
-           // Only proctor writes time updates to storage to avoid conflicts?
-           // Actually, writing every second to localStorage is bad for performance/listeners.
-           // Let's NOT write timeRemaining to storage constantly.
-           // Instead, rely on startTime and calculate locally.
-        }
-        
-        // We will update the exposed timeRemaining for the UI
-        setGameState(prev => {
-             // Don't trigger storage write for just this field if possible? 
-             // React state updates trigger effect.
-             // We'll just update it locally? No, we need it in context.
-             return { ...prev, timeRemaining: remaining }; 
-        });
+  useEffect(() => {
+    if (status === "active" && gameStartTime) {
+      const interval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - new Date(gameStartTime).getTime()) / 1000);
+        const remaining = Math.max(0, durationMinutes * 60 - elapsed);
+        setTimeRemaining(remaining);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [status, gameStartTime, durationMinutes]);
 
-        if (remaining <= 0 && currentUser?.isProctor) {
-           updateState({ status: "finished" });
-        }
-      }
-    };
-
-    interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [gameState.status, gameState.startTime, gameState.countdownStartTime, gameState.settings.durationMinutes, gameState.settings.countdownSeconds, currentUser?.isProctor]);
-
-
-  // Helper to update state and trigger sync
-  const updateState = (updates: Partial<GameState>) => {
-    setGameState(prev => ({ ...prev, ...updates }));
+  const saveSession = (hId: string, token: string, player: Player) => {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ huntId: hId, sessionToken: token, player }));
   };
 
-  // --- Actions ---
+  const setSessionFromStorage = useCallback((): boolean => {
+    const stored = sessionStorage.getItem(SESSION_KEY);
+    if (!stored) return false;
+    try {
+      const { huntId: hId, sessionToken: token, player } = JSON.parse(stored);
+      setHuntId(hId);
+      setSessionToken(token);
+      setCurrentUser(player);
+      connectWebSocket(hId);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [connectWebSocket]);
 
-  const login = (name: string, isProctor = false) => {
-    // Check if player already exists in shared state (rejoining?)
-    // For simplicity, always create new, unless we stored ID in sessionStorage?
-    // Let's just create new.
-    const newUser: Player = {
-      id: Math.random().toString(36).substring(7),
-      name,
-      teamId: null,
-      isProctor,
-    };
-    setCurrentUser(newUser);
-    
-    // Add to shared players list
-    updateState({ players: [...gameState.players, newUser] });
-  };
+  const createHunt = async (
+    itemList: { description: string; points: number }[],
+    gameSettings: GameSettings,
+    teamNames?: string[]
+  ): Promise<string | null> => {
+    try {
+      const res = await fetch("/api/hunts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: itemList,
+          settings: gameSettings,
+          teamNames,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
 
-  const createHunt = (newItems: ScavengerItem[], newSettings: GameSettings) => {
-    // Generate Teams
-    const generatedTeams: Team[] = Array.from({ length: newSettings.teamCount }).map((_, i) => ({
-      id: `team-${i + 1}`,
-      name: `Team ${i + 1}`,
-      score: 0,
-      color: MOCK_TEAMS_COLORS[i % MOCK_TEAMS_COLORS.length],
-    }));
-
-    updateState({
-      items: newItems,
-      settings: newSettings,
-      teams: generatedTeams,
-      status: "lobby",
-      isLocked: false,
-      players: [], // Clear old players on new hunt? Or keep? Let's clear for clean slate.
-    });
-    
-    // Re-add current proctor to players
-    if (currentUser) {
-       // logic to ensure proctor is in list
-       // But wait, createHunt wipes players.
-       // We should keep the current user in the list if they are proctor.
-       // Actually, let's just keep the proctor.
-       const proctor = gameState.players.find(p => p.isProctor) || currentUser;
-       if (proctor) {
-          updateState({ players: [proctor], teams: generatedTeams, items: newItems, settings: newSettings, status: "lobby", isLocked: false });
-       }
+      const hId = data.hunt.id;
+      setHuntId(hId);
+      setHuntCode(data.hunt.code);
+      setSessionToken(data.sessionToken);
+      setCurrentUser({ id: data.playerId, name: "Game Proctor", teamId: null, isProctor: true });
+      saveSession(hId, data.sessionToken, { id: data.playerId, name: "Game Proctor", teamId: null, isProctor: true });
+      connectWebSocket(hId);
+      return hId;
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+      return null;
     }
   };
 
-  const joinTeam = (teamId: string) => {
-    if (!currentUser) return;
-    if (gameState.isLocked) {
-      toast({ title: "Teams are Locked", description: "The proctor has locked the teams.", variant: "destructive" });
+  const joinHunt = async (code: string, name: string): Promise<boolean> => {
+    try {
+      const huntRes = await fetch(`/api/hunts/code/${code.toUpperCase()}`);
+      const huntData = await huntRes.json();
+      if (!huntRes.ok) throw new Error(huntData.error || "Hunt not found");
+
+      const hId = huntData.id;
+
+      const joinRes = await fetch(`/api/hunts/${hId}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const joinData = await joinRes.json();
+      if (!joinRes.ok) throw new Error(joinData.error);
+
+      setHuntId(hId);
+      setSessionToken(joinData.sessionToken);
+      setCurrentUser(joinData.player);
+      saveSession(hId, joinData.sessionToken, joinData.player);
+      connectWebSocket(hId);
+      return true;
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+      return false;
+    }
+  };
+
+  const joinTeam = async (teamId: number) => {
+    if (!currentUser || !huntId) return;
+    if (isLocked) {
+      toast({ title: "Teams Locked", description: "The proctor has locked the teams.", variant: "destructive" });
       return;
     }
-    
-    const updatedUser = { ...currentUser, teamId };
-    setCurrentUser(updatedUser);
-    
-    updateState({
-      players: gameState.players.map(p => p.id === currentUser.id ? updatedUser : p)
-    });
+    try {
+      const res = await fetch(`/api/hunts/${huntId}/join-team`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ playerId: currentUser.id, teamId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error);
+      }
+      setCurrentUser(prev => prev ? { ...prev, teamId } : prev);
+      const stored = sessionStorage.getItem(SESSION_KEY);
+      if (stored) {
+        const session = JSON.parse(stored);
+        session.player.teamId = teamId;
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
   };
 
-  const lockTeams = () => {
-    updateState({ isLocked: true });
-    toast({ title: "Teams Locked!", description: "No more switching allowed." });
+  const lockTeams = async () => {
+    if (!huntId) return;
+    try {
+      await fetch(`/api/hunts/${huntId}/lock-teams`, { method: "POST" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
   };
 
-  const startCountdown = () => {
-    updateState({ 
-      status: "countdown",
-      countdownStartTime: Date.now()
-    });
+  const startCountdown = async () => {
+    if (!huntId) return;
+    try {
+      await fetch(`/api/hunts/${huntId}/start-countdown`, { method: "POST" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    }
   };
 
-  const submitPhoto = async (itemId: string, photo: string): Promise<boolean> => {
-    return new Promise((resolve) => {
-      // Optimistic update locally? No, wait for mock result.
-      setTimeout(() => {
-        const isSuccess = Math.random() > 0.1;
-        
-        if (isSuccess && currentUser?.teamId) {
-          // Calculate points
-          const item = gameState.items.find(i => i.id === itemId);
-          if (!item) { resolve(false); return; }
-
-          // Use functional update to ensure we have latest state even inside closure
-          setGameState(prev => {
-             // Check if already completed by this team (race condition check)
-             const currentItem = prev.items.find(i => i.id === itemId);
-             if (currentItem?.completedByTeamIds.includes(currentUser.teamId!)) {
-               return prev; // Already done
-             }
-
-             const newItems = prev.items.map(i => 
-               i.id === itemId 
-                 ? { ...i, completedByTeamIds: [...i.completedByTeamIds, currentUser.teamId!] }
-                 : i
-             );
-
-             const newTeams = prev.teams.map(t => 
-               t.id === currentUser.teamId
-                 ? { ...t, score: t.score + item.points }
-                 : t
-             );
-
-             return { ...prev, items: newItems, teams: newTeams };
-          });
-          
-          resolve(true);
-        } else {
-          resolve(false);
-        }
-      }, 1500);
-    });
+  const submitPhoto = async (itemId: number, photoData: string): Promise<{ verified: boolean; aiResponse: string; points: number }> => {
+    if (!huntId || !currentUser?.teamId) {
+      return { verified: false, aiResponse: "Not on a team", points: 0 };
+    }
+    try {
+      const res = await fetch(`/api/hunts/${huntId}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemId,
+          teamId: currentUser.teamId,
+          playerId: currentUser.id,
+          photoData,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      return data;
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+      return { verified: false, aiResponse: err.message, points: 0 };
+    }
   };
 
   const resetGame = () => {
-    updateState({
-      status: "setup",
-      teams: [],
-      players: [],
-      items: INITIAL_ITEMS,
-      isLocked: false,
-      startTime: undefined,
-      countdownStartTime: undefined
-    });
+    if (wsRef.current) wsRef.current.close();
+    sessionStorage.removeItem(SESSION_KEY);
+    setHuntId(null);
+    setHuntCode(null);
+    setStatus("setup");
+    setTeams([]);
+    setPlayers([]);
+    setItems([]);
+    setCompletedSubmissions([]);
+    setIsLocked(false);
     setCurrentUser(null);
+    setSessionToken(null);
+    setCountdownValue(0);
+    setTimeRemaining(0);
+    setGameStartTime(null);
+    setCountdownStartTime(null);
   };
 
   return (
     <GameContext.Provider
       value={{
-        ...gameState,
+        huntId,
+        huntCode,
+        status,
+        teams,
+        players,
+        items,
+        completedSubmissions,
+        settings,
+        timeRemaining,
+        isLocked,
         currentUser,
+        sessionToken,
         countdownValue,
-        login,
+        connected,
         createHunt,
+        joinHunt,
         joinTeam,
         lockTeams,
         startCountdown,
         submitPhoto,
         resetGame,
+        setSessionFromStorage,
       }}
     >
       {children}

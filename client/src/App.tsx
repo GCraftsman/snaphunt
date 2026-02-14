@@ -14,8 +14,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
-      <Route path="/proctor/setup" component={ProctorDashboard} />
-      <Route path="/proctor/lobby" component={ProctorDashboard} />
+      <Route path="/proctor" component={ProctorDashboard} />
       <Route path="/lobby" component={Lobby} />
       <Route path="/game" component={Game} />
       <Route component={NotFound} />
