@@ -74,51 +74,91 @@ export default function Game() {
     };
   }, []);
 
+  const isInIframe = window.self !== window.top;
+
+  const requestCameraAccess = useCallback(async (signal?: { cancelled: boolean }) => {
+    if (videoStreamRef.current) {
+      setCameraReady(true);
+      setRequestingCamera(false);
+      return;
+    }
+
+    if (isInIframe) {
+      setVideoError("Camera access doesn't work in embedded previews. Please open this page in a new browser tab to record video.");
+      setRequestingCamera(false);
+      return;
+    }
+
+    setRequestingCamera(true);
+    setVideoError(null);
+    setCameraReady(false);
+    try {
+      if (!window.isSecureContext) {
+        setVideoError("Camera access requires a secure connection (HTTPS). Please open this page in a new browser tab using the full URL.");
+        setRequestingCamera(false);
+        return;
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setVideoError("Your browser doesn't support camera access. Try opening this page directly in Chrome or Safari.");
+        setRequestingCamera(false);
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: true,
+      });
+      if (signal?.cancelled) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
+      videoStreamRef.current = stream;
+      setCameraReady(true);
+      setRequestingCamera(false);
+      if (videoPreviewRef.current) {
+        videoPreviewRef.current.srcObject = stream;
+        try { await videoPreviewRef.current.play(); } catch (_) {}
+      }
+    } catch (permErr: any) {
+      if (signal?.cancelled) return;
+      setRequestingCamera(false);
+      console.error("Camera access error:", permErr.name, permErr.message);
+      if (permErr.name === "NotAllowedError" || permErr.name === "PermissionDeniedError") {
+        setVideoError("Camera access was denied. Please allow camera and microphone permissions in your browser settings and try again.");
+      } else if (permErr.name === "NotFoundError" || permErr.name === "DevicesNotFoundError") {
+        setVideoError("No camera found. Please make sure your device has a camera.");
+      } else if (permErr.name === "NotReadableError" || permErr.name === "TrackStartError") {
+        setVideoError("Camera is in use by another app. Please close other apps using the camera and try again.");
+      } else if (permErr.name === "OverconstrainedError") {
+        try {
+          const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          if (signal?.cancelled) {
+            fallbackStream.getTracks().forEach(t => t.stop());
+            return;
+          }
+          videoStreamRef.current = fallbackStream;
+          setCameraReady(true);
+          setRequestingCamera(false);
+          if (videoPreviewRef.current) {
+            videoPreviewRef.current.srcObject = fallbackStream;
+            try { await videoPreviewRef.current.play(); } catch (_) {}
+          }
+          return;
+        } catch (_) {
+          setVideoError("Could not access camera with the required settings. Try a different browser.");
+        }
+      } else {
+        setVideoError(`Could not access camera: ${permErr.message || permErr.name || "Unknown error"}. Try opening this page in a new browser tab.`);
+      }
+    }
+  }, [isInIframe]);
+
   useEffect(() => {
     if (!selectedItem || selectedItem.mediaType !== "video") return;
     if (videoStreamRef.current || recordedUrl) return;
-
-    let cancelled = false;
-    const initCamera = async () => {
-      setRequestingCamera(true);
-      setVideoError(null);
-      setCameraReady(false);
-      try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          setVideoError("Your browser doesn't support video recording. Please use a modern browser.");
-          setRequestingCamera(false);
-          return;
-        }
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
-          audio: true,
-        });
-        if (cancelled) {
-          stream.getTracks().forEach(t => t.stop());
-          return;
-        }
-        videoStreamRef.current = stream;
-        setCameraReady(true);
-        setRequestingCamera(false);
-        if (videoPreviewRef.current) {
-          videoPreviewRef.current.srcObject = stream;
-          try { await videoPreviewRef.current.play(); } catch (_) {}
-        }
-      } catch (permErr: any) {
-        if (cancelled) return;
-        setRequestingCamera(false);
-        if (permErr.name === "NotAllowedError") {
-          setVideoError("Camera access was denied. Please allow camera and microphone permissions in your browser settings, then try again.");
-        } else if (permErr.name === "NotFoundError") {
-          setVideoError("No camera found. Please make sure your device has a camera.");
-        } else {
-          setVideoError(`Could not access camera: ${permErr.message || "Unknown error"}`);
-        }
-      }
-    };
-    initCamera();
-    return () => { cancelled = true; };
-  }, [selectedItem?.id]);
+    const signal = { cancelled: false };
+    requestCameraAccess(signal);
+    return () => { signal.cancelled = true; };
+  }, [selectedItem?.id, requestCameraAccess]);
 
   const isItemCompleted = (itemId: number) => completedSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
   const isItemPending = (itemId: number) => pendingSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
@@ -154,29 +194,15 @@ export default function Game() {
     setVideoError(null);
     try {
       if (typeof MediaRecorder === "undefined") {
-        setVideoError("Video recording is not supported in this browser.");
+        setVideoError("Video recording is not supported in this browser. Try opening in Chrome or Safari.");
         return;
       }
 
       let stream = videoStreamRef.current;
       if (!stream) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
-            audio: true,
-          });
-          videoStreamRef.current = stream;
-          setCameraReady(true);
-        } catch (permErr: any) {
-          if (permErr.name === "NotAllowedError") {
-            setVideoError("Camera access was denied. Please allow camera and microphone permissions in your browser settings, then try again.");
-          } else if (permErr.name === "NotFoundError") {
-            setVideoError("No camera found. Please make sure your device has a camera.");
-          } else {
-            setVideoError(`Could not access camera: ${permErr.message || "Unknown error"}`);
-          }
-          return;
-        }
+        await requestCameraAccess();
+        stream = videoStreamRef.current;
+        if (!stream) return;
       }
 
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
@@ -500,12 +526,32 @@ export default function Game() {
                     )}
                     {!isRecording && !recordedUrl && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                        <div className="text-center space-y-2">
+                        <div className="text-center space-y-2 px-4">
                           {videoError ? (
                             <>
                               <AlertTriangle className="w-12 h-12 mx-auto text-red-400" />
-                              <p className="text-red-400 text-sm px-4">{videoError}</p>
-                              <p className="text-white/50 text-xs">Close and reopen this item to try again</p>
+                              <p className="text-red-400 text-sm">{videoError}</p>
+                              <div className="flex flex-col gap-2 items-center mt-3">
+                                {!isInIframe && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => requestCameraAccess()}
+                                    className="text-white border-white/30"
+                                    data-testid="button-retry-camera"
+                                  >
+                                    <RotateCcw className="w-3 h-3 mr-1" /> Retry Camera
+                                  </Button>
+                                )}
+                                <a
+                                  href={window.location.href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-cyan-400 text-xs underline"
+                                >
+                                  Open in new browser tab
+                                </a>
+                              </div>
                             </>
                           ) : requestingCamera ? (
                             <>

@@ -23,6 +23,11 @@ app.use(
 
 app.use(express.urlencoded({ extended: false, limit: "100mb" }));
 
+app.use((_req, res, next) => {
+  res.setHeader("Permissions-Policy", "camera=*, microphone=*");
+  next();
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
