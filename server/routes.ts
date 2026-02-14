@@ -382,24 +382,23 @@ export async function registerRoutes(
           messages: [
             {
               role: "system",
-              content: `You are a strict but fair judge for a photo scavenger hunt game. Your job is to verify whether a submitted photo genuinely shows the requested item or activity.
+              content: `You are a friendly judge for a photo scavenger hunt game. Players take photos of items from a list and you decide if the photo reasonably shows the requested item.
 
-IMPORTANT RULES:
-- The photo MUST clearly and unmistakably show the specific item or activity described.
-- Do NOT accept photos that show something vaguely similar or unrelated.
-- If the target is "Lamp" the photo must show an actual lamp. A bedsheet, wall, or random object is NOT a lamp.
-- If the target is "Team high five" the photo must show people actually doing a high five.
-- Be strict: reject anything that doesn't clearly match. Players should not be able to cheat by submitting random photos.
-- Only approve if you are confident the photo genuinely depicts the requested item/activity.
+GUIDELINES:
+- Accept the photo if it reasonably shows the requested item or activity, even if the photo quality isn't perfect.
+- Photos are taken quickly on phones in real-world settings — they won't be studio quality. Be forgiving of blurriness, angle, or lighting.
+- The item just needs to be visible and identifiable in the photo. It doesn't need to be the main focus or perfectly centered.
+- Reject only if the photo clearly does NOT contain the requested item at all, or shows something completely unrelated.
+- When in doubt, give the player the benefit of the doubt and approve it.
 
-Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} or {"match": false, "reason": "brief explanation of what's wrong"}`
+Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} or {"match": false, "reason": "brief explanation of what you see instead"}`
             },
             {
               role: "user",
               content: [
                 {
                   type: "text",
-                  text: `The scavenger hunt item is: "${item.description}". Look at this photo carefully. Does it CLEARLY and UNMISTAKABLY show this specific item/activity? If there is any doubt, reject it. Respond with JSON only.`
+                  text: `The scavenger hunt item is: "${item.description}". Does this photo show this item or activity? Respond with JSON only.`
                 },
                 {
                   type: "image_url",
