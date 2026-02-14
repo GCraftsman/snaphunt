@@ -59,9 +59,6 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Increase body size limit for photo uploads
-  app.use("/api", express.json({ limit: "10mb" }));
-
   // --- WebSocket Server ---
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
