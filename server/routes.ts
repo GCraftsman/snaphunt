@@ -408,7 +408,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
               ]
             }
           ],
-          max_tokens: 200,
+          max_completion_tokens: 200,
         });
 
         const responseText = completion.choices[0]?.message?.content || "";

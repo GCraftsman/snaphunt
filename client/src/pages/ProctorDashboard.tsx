@@ -579,7 +579,7 @@ export default function ProctorDashboard() {
                           variant="ghost"
                           size="icon"
                           onClick={() => handleRemoveItem(idx)}
-                          className="md:opacity-0 md:group-hover:opacity-100 hover:text-destructive transition-opacity text-muted-foreground"
+                          className="hover:text-destructive text-muted-foreground"
                           data-testid={`button-remove-item-${idx}`}
                         >
                           <Trash2 className="w-4 h-4" />
