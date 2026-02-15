@@ -74,81 +74,70 @@ export default function Game() {
     };
   }, []);
 
-  const cameraRequestId = useRef(0);
+  const [cameraErrorMsg, setCameraErrorMsg] = useState<string | null>(null);
+  const pendingVideoItemRef = useRef<any>(null);
 
-  const handleEnableCamera = async () => {
-    if (videoStreamRef.current) {
-      setCameraReady(true);
-      return;
-    }
-
+  const acquireCamera = async (): Promise<{ stream: MediaStream | null; error: string | null }> => {
     let isInIframe = false;
     try { isInIframe = window.self !== window.top; } catch (_) { isInIframe = true; }
     if (isInIframe) {
-      setVideoError("Camera access doesn't work in embedded previews. Please open this page in a new browser tab.");
-      return;
+      return { stream: null, error: "Camera access doesn't work in embedded previews. Please open this page in a new browser tab." };
     }
     if (!window.isSecureContext) {
-      setVideoError("Camera access requires a secure connection (HTTPS). Please open this page in a new browser tab.");
-      return;
+      return { stream: null, error: "Camera access requires a secure connection (HTTPS). Please open this page in a new browser tab." };
     }
-
-    const requestId = ++cameraRequestId.current;
-    setRequestingCamera(true);
-    setVideoError(null);
-    setCameraReady(false);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return { stream: null, error: "Your browser doesn't support camera access. Try using Safari or Chrome." };
+    }
     try {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setVideoError("Your browser doesn't support camera access. Try using Safari or Chrome.");
-        setRequestingCamera(false);
-        return;
-      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
         audio: true,
       });
-      if (requestId !== cameraRequestId.current) {
-        stream.getTracks().forEach(t => t.stop());
-        return;
-      }
-      videoStreamRef.current = stream;
-      setCameraReady(true);
-      setRequestingCamera(false);
-      if (videoPreviewRef.current) {
-        videoPreviewRef.current.srcObject = stream;
-        try { await videoPreviewRef.current.play(); } catch (_) {}
-      }
-    } catch (permErr: any) {
-      if (requestId !== cameraRequestId.current) return;
-      setRequestingCamera(false);
-      console.error("Camera access error:", permErr.name, permErr.message);
-      if (permErr.name === "NotAllowedError" || permErr.name === "PermissionDeniedError") {
-        setVideoError("Camera access was denied. Please tap 'Allow' when your browser asks for camera permission. You may need to go to your browser settings to enable camera access for this site.");
-      } else if (permErr.name === "NotFoundError" || permErr.name === "DevicesNotFoundError") {
-        setVideoError("No camera found. Please make sure your device has a camera.");
-      } else if (permErr.name === "NotReadableError" || permErr.name === "TrackStartError") {
-        setVideoError("Camera is in use by another app. Please close other apps using the camera and try again.");
-      } else if (permErr.name === "OverconstrainedError") {
+      return { stream, error: null };
+    } catch (err: any) {
+      console.error("Camera access error:", err.name, err.message);
+      if (err.name === "OverconstrainedError") {
         try {
-          const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-          if (requestId !== cameraRequestId.current) {
-            fallbackStream.getTracks().forEach(t => t.stop());
-            return;
-          }
-          videoStreamRef.current = fallbackStream;
-          setCameraReady(true);
-          setRequestingCamera(false);
-          if (videoPreviewRef.current) {
-            videoPreviewRef.current.srcObject = fallbackStream;
-            try { await videoPreviewRef.current.play(); } catch (_) {}
-          }
-          return;
-        } catch (_) {
-          setVideoError("Could not access camera with the required settings. Try a different browser.");
-        }
-      } else {
-        setVideoError(`Could not access camera: ${permErr.message || permErr.name || "Unknown error"}`);
+          const fallback = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          return { stream: fallback, error: null };
+        } catch (_) {}
       }
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        return { stream: null, error: "Camera access was denied. Tap 'Allow' when your browser asks, or enable camera access for this site in your browser settings." };
+      }
+      if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        return { stream: null, error: "No camera found. Make sure your device has a camera." };
+      }
+      if (err.name === "NotReadableError" || err.name === "TrackStartError") {
+        return { stream: null, error: "Camera is in use by another app. Close other apps and try again." };
+      }
+      return { stream: null, error: `Could not access camera: ${err.message || err.name || "Unknown error"}` };
+    }
+  };
+
+  const handleItemSelect = async (item: any) => {
+    if (item.mediaType === "video") {
+      setCameraErrorMsg(null);
+      setVideoError(null);
+      setCameraReady(false);
+      setRequestingCamera(true);
+      setSelectedItem(null);
+      pendingVideoItemRef.current = item;
+
+      const { stream, error } = await acquireCamera();
+
+      setRequestingCamera(false);
+      if (stream) {
+        videoStreamRef.current = stream;
+        setCameraReady(true);
+        setSelectedItem(item);
+      } else {
+        setCameraErrorMsg(error || "Camera access failed. Please try again.");
+        pendingVideoItemRef.current = null;
+      }
+    } else {
+      setSelectedItem(item);
     }
   };
 
@@ -166,8 +155,9 @@ export default function Game() {
     setIsRedoing(false);
     setShowRedoConfirm(false);
     if (success) {
+      const item = viewingItem;
       setViewingItem(null);
-      setSelectedItem(viewingItem);
+      handleItemSelect(item);
     }
   };
 
@@ -192,9 +182,14 @@ export default function Game() {
 
       let stream = videoStreamRef.current;
       if (!stream) {
-        await handleEnableCamera();
-        stream = videoStreamRef.current;
-        if (!stream) return;
+        const result = await acquireCamera();
+        if (!result.stream) {
+          setVideoError(result.error || "Camera access failed.");
+          return;
+        }
+        videoStreamRef.current = result.stream;
+        setCameraReady(true);
+        stream = result.stream;
       }
 
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8,opus")
@@ -303,7 +298,6 @@ export default function Game() {
   };
 
   const closeDialog = () => {
-    cameraRequestId.current++;
     setSelectedItem(null);
     setCapturedImage(null);
     setSubmitResult(null);
@@ -333,6 +327,46 @@ export default function Game() {
   return (
     <div className="min-h-screen bg-background pb-20 overflow-hidden relative">
       {showConfetti && <Confetti width={width} height={height} numberOfPieces={200} recycle={false} />}
+
+      {requestingCamera && !selectedItem && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center">
+          <div className="text-center space-y-3">
+            <Loader2 className="w-12 h-12 mx-auto text-primary animate-spin" />
+            <p className="text-white text-lg font-medium">Setting up camera...</p>
+            <p className="text-white/50 text-sm">Tap "Allow" when your browser asks for permission</p>
+          </div>
+        </div>
+      )}
+
+      {cameraErrorMsg && !selectedItem && !requestingCamera && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center">
+          <div className="text-center space-y-4 px-6 max-w-sm">
+            <AlertTriangle className="w-12 h-12 mx-auto text-red-400" />
+            <p className="text-red-400 text-sm">{cameraErrorMsg}</p>
+            <div className="flex gap-3 justify-center">
+              <Button
+                variant="outline"
+                onClick={() => setCameraErrorMsg(null)}
+                className="text-white border-white/30"
+              >
+                <ArrowLeft className="w-4 h-4 mr-1" /> Back
+              </Button>
+              <Button
+                onClick={() => {
+                  setCameraErrorMsg(null);
+                  if (pendingVideoItemRef.current) {
+                    handleItemSelect(pendingVideoItemRef.current);
+                  }
+                }}
+                className="bg-primary hover:bg-primary/90"
+                data-testid="button-retry-camera"
+              >
+                <RotateCcw className="w-4 h-4 mr-1" /> Try Again
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-md border-b border-white/10 p-4 flex justify-between items-center">
         <div className="flex flex-col">
@@ -378,7 +412,7 @@ export default function Game() {
                     "bg-card border-white/5 hover:border-primary/50 active:scale-[0.98]"
                   }`}
                   onClick={() => {
-                    if (uploading) return;
+                    if (uploading || requestingCamera) return;
                     if (completed) {
                       setViewingMode("completed");
                       setViewingItem(item);
@@ -386,7 +420,7 @@ export default function Game() {
                       setViewingMode("pending");
                       setViewingItem(item);
                     } else {
-                      setSelectedItem(item);
+                      handleItemSelect(item);
                     }
                   }}
                   data-testid={`card-item-${item.id}`}
@@ -527,18 +561,16 @@ export default function Game() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={handleEnableCamera}
+                                onClick={() => {
+                                  const item = selectedItem;
+                                  closeDialog();
+                                  if (item) handleItemSelect(item);
+                                }}
                                 className="text-white border-white/30 mt-2"
                                 data-testid="button-retry-camera"
                               >
                                 <RotateCcw className="w-3 h-3 mr-1" /> Try Again
                               </Button>
-                            </>
-                          ) : requestingCamera ? (
-                            <>
-                              <Loader2 className="w-12 h-12 mx-auto text-white/60 animate-spin" />
-                              <p className="text-white/80 text-sm">Requesting camera access...</p>
-                              <p className="text-white/50 text-xs">Tap "Allow" when your browser asks for permission</p>
                             </>
                           ) : cameraReady ? (
                             <>
@@ -548,17 +580,8 @@ export default function Game() {
                             </>
                           ) : (
                             <>
-                              <Camera className="w-16 h-16 mx-auto text-white/70" />
-                              <p className="text-white text-base font-medium">Tap to enable your camera</p>
-                              <p className="text-white/50 text-xs">Your browser will ask for camera permission</p>
-                              <Button
-                                onClick={handleEnableCamera}
-                                size="lg"
-                                className="mt-2 h-14 text-lg font-bold bg-primary hover:bg-primary/90 px-8"
-                                data-testid="button-enable-camera"
-                              >
-                                <Camera className="mr-2 w-5 h-5" /> Enable Camera
-                              </Button>
+                              <Loader2 className="w-12 h-12 mx-auto text-white/60 animate-spin" />
+                              <p className="text-white/80 text-sm">Setting up camera...</p>
                             </>
                           )}
                         </div>
