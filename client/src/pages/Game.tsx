@@ -74,32 +74,32 @@ export default function Game() {
     };
   }, []);
 
-  const isInIframe = window.self !== window.top;
+  const cameraRequestId = useRef(0);
 
-  const requestCameraAccess = useCallback(async (signal?: { cancelled: boolean }) => {
+  const handleEnableCamera = async () => {
     if (videoStreamRef.current) {
       setCameraReady(true);
-      setRequestingCamera(false);
       return;
     }
 
+    let isInIframe = false;
+    try { isInIframe = window.self !== window.top; } catch (_) { isInIframe = true; }
     if (isInIframe) {
-      setVideoError("Camera access doesn't work in embedded previews. Please open this page in a new browser tab to record video.");
-      setRequestingCamera(false);
+      setVideoError("Camera access doesn't work in embedded previews. Please open this page in a new browser tab.");
+      return;
+    }
+    if (!window.isSecureContext) {
+      setVideoError("Camera access requires a secure connection (HTTPS). Please open this page in a new browser tab.");
       return;
     }
 
+    const requestId = ++cameraRequestId.current;
     setRequestingCamera(true);
     setVideoError(null);
     setCameraReady(false);
     try {
-      if (!window.isSecureContext) {
-        setVideoError("Camera access requires a secure connection (HTTPS). Please open this page in a new browser tab using the full URL.");
-        setRequestingCamera(false);
-        return;
-      }
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        setVideoError("Your browser doesn't support camera access. Try opening this page directly in Chrome or Safari.");
+        setVideoError("Your browser doesn't support camera access. Try using Safari or Chrome.");
         setRequestingCamera(false);
         return;
       }
@@ -107,7 +107,7 @@ export default function Game() {
         video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
         audio: true,
       });
-      if (signal?.cancelled) {
+      if (requestId !== cameraRequestId.current) {
         stream.getTracks().forEach(t => t.stop());
         return;
       }
@@ -119,11 +119,11 @@ export default function Game() {
         try { await videoPreviewRef.current.play(); } catch (_) {}
       }
     } catch (permErr: any) {
-      if (signal?.cancelled) return;
+      if (requestId !== cameraRequestId.current) return;
       setRequestingCamera(false);
       console.error("Camera access error:", permErr.name, permErr.message);
       if (permErr.name === "NotAllowedError" || permErr.name === "PermissionDeniedError") {
-        setVideoError("Camera access was denied. Please allow camera and microphone permissions in your browser settings and try again.");
+        setVideoError("Camera access was denied. Please tap 'Allow' when your browser asks for camera permission. You may need to go to your browser settings to enable camera access for this site.");
       } else if (permErr.name === "NotFoundError" || permErr.name === "DevicesNotFoundError") {
         setVideoError("No camera found. Please make sure your device has a camera.");
       } else if (permErr.name === "NotReadableError" || permErr.name === "TrackStartError") {
@@ -131,7 +131,7 @@ export default function Game() {
       } else if (permErr.name === "OverconstrainedError") {
         try {
           const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-          if (signal?.cancelled) {
+          if (requestId !== cameraRequestId.current) {
             fallbackStream.getTracks().forEach(t => t.stop());
             return;
           }
@@ -147,18 +147,10 @@ export default function Game() {
           setVideoError("Could not access camera with the required settings. Try a different browser.");
         }
       } else {
-        setVideoError(`Could not access camera: ${permErr.message || permErr.name || "Unknown error"}. Try opening this page in a new browser tab.`);
+        setVideoError(`Could not access camera: ${permErr.message || permErr.name || "Unknown error"}`);
       }
     }
-  }, [isInIframe]);
-
-  useEffect(() => {
-    if (!selectedItem || selectedItem.mediaType !== "video") return;
-    if (videoStreamRef.current || recordedUrl) return;
-    const signal = { cancelled: false };
-    requestCameraAccess(signal);
-    return () => { signal.cancelled = true; };
-  }, [selectedItem?.id, requestCameraAccess]);
+  };
 
   const isItemCompleted = (itemId: number) => completedSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
   const isItemPending = (itemId: number) => pendingSubmissions.some(s => s.itemId === itemId && s.teamId === currentUser?.teamId);
@@ -200,7 +192,7 @@ export default function Game() {
 
       let stream = videoStreamRef.current;
       if (!stream) {
-        await requestCameraAccess();
+        await handleEnableCamera();
         stream = videoStreamRef.current;
         if (!stream) return;
       }
@@ -311,6 +303,7 @@ export default function Game() {
   };
 
   const closeDialog = () => {
+    cameraRequestId.current++;
     setSelectedItem(null);
     setCapturedImage(null);
     setSubmitResult(null);
@@ -525,51 +518,47 @@ export default function Game() {
                       </div>
                     )}
                     {!isRecording && !recordedUrl && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                        <div className="text-center space-y-2 px-4">
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                        <div className="text-center space-y-3 px-4">
                           {videoError ? (
                             <>
                               <AlertTriangle className="w-12 h-12 mx-auto text-red-400" />
                               <p className="text-red-400 text-sm">{videoError}</p>
-                              <div className="flex flex-col gap-2 items-center mt-3">
-                                {!isInIframe && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => requestCameraAccess()}
-                                    className="text-white border-white/30"
-                                    data-testid="button-retry-camera"
-                                  >
-                                    <RotateCcw className="w-3 h-3 mr-1" /> Retry Camera
-                                  </Button>
-                                )}
-                                <a
-                                  href={window.location.href}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-cyan-400 text-xs underline"
-                                >
-                                  Open in new browser tab
-                                </a>
-                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleEnableCamera}
+                                className="text-white border-white/30 mt-2"
+                                data-testid="button-retry-camera"
+                              >
+                                <RotateCcw className="w-3 h-3 mr-1" /> Try Again
+                              </Button>
                             </>
                           ) : requestingCamera ? (
                             <>
                               <Loader2 className="w-12 h-12 mx-auto text-white/60 animate-spin" />
                               <p className="text-white/80 text-sm">Requesting camera access...</p>
-                              <p className="text-white/50 text-xs">Please allow camera and microphone when prompted</p>
+                              <p className="text-white/50 text-xs">Tap "Allow" when your browser asks for permission</p>
                             </>
                           ) : cameraReady ? (
                             <>
-                              <Video className="w-12 h-12 mx-auto text-white/60" />
-                              <p className="text-white/80 text-sm">Camera ready! Tap REC to start recording</p>
+                              <Video className="w-12 h-12 mx-auto text-green-400" />
+                              <p className="text-white/80 text-sm">Camera ready! Tap REC to start</p>
                               <p className="text-white/50 text-xs">Max {videoLength} seconds</p>
                             </>
                           ) : (
                             <>
-                              <Video className="w-12 h-12 mx-auto text-white/60" />
-                              <p className="text-white/80 text-sm">Tap REC to start recording</p>
-                              <p className="text-white/50 text-xs">Max {videoLength} seconds</p>
+                              <Camera className="w-16 h-16 mx-auto text-white/70" />
+                              <p className="text-white text-base font-medium">Tap to enable your camera</p>
+                              <p className="text-white/50 text-xs">Your browser will ask for camera permission</p>
+                              <Button
+                                onClick={handleEnableCamera}
+                                size="lg"
+                                className="mt-2 h-14 text-lg font-bold bg-primary hover:bg-primary/90 px-8"
+                                data-testid="button-enable-camera"
+                              >
+                                <Camera className="mr-2 w-5 h-5" /> Enable Camera
+                              </Button>
                             </>
                           )}
                         </div>
@@ -607,7 +596,7 @@ export default function Game() {
                     <Button variant="outline" onClick={closeDialog} data-testid="button-back-to-list">
                       <ArrowLeft className="mr-2 w-4 h-4" /> Back
                     </Button>
-                    <Button onClick={startVideoRecording} size="lg" className="h-14 text-xl font-bold bg-red-500 hover:bg-red-600 text-white" data-testid="button-record">
+                    <Button onClick={startVideoRecording} size="lg" disabled={!cameraReady} className="h-14 text-xl font-bold bg-red-500 hover:bg-red-600 text-white disabled:opacity-40" data-testid="button-record">
                       <Video className="mr-2 w-6 h-6" /> REC
                     </Button>
                   </>
