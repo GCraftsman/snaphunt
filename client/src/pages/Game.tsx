@@ -89,31 +89,41 @@ export default function Game() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       return { stream: null, error: "Your browser doesn't support camera access. Try using Safari or Chrome." };
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: true,
-      });
-      return { stream, error: null };
-    } catch (err: any) {
-      console.error("Camera access error:", err.name, err.message);
-      if (err.name === "OverconstrainedError") {
-        try {
-          const fallback = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-          return { stream: fallback, error: null };
-        } catch (_) {}
+    const videoConstraints = { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } } as MediaTrackConstraints;
+    const attempts: Array<MediaStreamConstraints> = [
+      { video: videoConstraints, audio: true },
+      { video: videoConstraints, audio: false },
+      { video: true, audio: true },
+      { video: true, audio: false },
+    ];
+    let lastErr: any = null;
+    for (const constraints of attempts) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        return { stream, error: null };
+      } catch (err: any) {
+        lastErr = err;
+        console.warn(`getUserMedia failed with constraints`, constraints, err.name, err.message);
+        if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+          continue;
+        }
+        if (err.name === "OverconstrainedError") {
+          continue;
+        }
+        break;
       }
-      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-        return { stream: null, error: "Camera access was denied. Tap 'Allow' when your browser asks, or enable camera access for this site in your browser settings." };
-      }
-      if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-        return { stream: null, error: "No camera found. Make sure your device has a camera." };
-      }
-      if (err.name === "NotReadableError" || err.name === "TrackStartError") {
-        return { stream: null, error: "Camera is in use by another app. Close other apps and try again." };
-      }
-      return { stream: null, error: `Could not access camera: ${err.message || err.name || "Unknown error"}` };
     }
+    console.error("All camera access attempts failed:", lastErr?.name, lastErr?.message);
+    if (lastErr?.name === "NotAllowedError" || lastErr?.name === "PermissionDeniedError") {
+      return { stream: null, error: "Camera access is blocked. In Chrome, tap the lock icon (or tune icon) in the address bar, then set Camera to 'Allow' and reload the page." };
+    }
+    if (lastErr?.name === "NotFoundError" || lastErr?.name === "DevicesNotFoundError") {
+      return { stream: null, error: "No camera found. Make sure your device has a camera." };
+    }
+    if (lastErr?.name === "NotReadableError" || lastErr?.name === "TrackStartError") {
+      return { stream: null, error: "Camera is in use by another app. Close other apps and try again." };
+    }
+    return { stream: null, error: `Could not access camera: ${lastErr?.message || lastErr?.name || "Unknown error"}` };
   };
 
   const handleItemSelect = async (item: any) => {
