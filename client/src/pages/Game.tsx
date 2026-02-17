@@ -1,4 +1,5 @@
 import { useGame } from "@/context/GameContext";
+import { VideoPlayer } from "@/components/VideoPlayer";
 import { useState, useRef, useCallback, useEffect } from "react";
 import Webcam from "react-webcam";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -753,7 +754,7 @@ export default function Game() {
                 {photoData ? (
                   <div className="relative bg-black flex items-center justify-center max-h-[50vh] overflow-hidden">
                     {isVideo ? (
-                      <video src={photoData} controls className="w-full h-full object-contain" />
+                      <VideoPlayer src={photoData} className="w-full h-full object-contain" />
                     ) : (
                       <img src={photoData} alt="Submitted photo" className="w-full h-full object-contain" />
                     )}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useGame } from "@/context/GameContext";
+import { VideoPlayer } from "@/components/VideoPlayer";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -634,9 +635,8 @@ export default function ProctorDashboard() {
               </div>
               <div className="p-4">
                 {reviewingSubmission.mediaType === "video" || reviewingSubmission.photoData?.startsWith("data:video") ? (
-                  <video
+                  <VideoPlayer
                     src={reviewingSubmission.photoData}
-                    controls
                     autoPlay
                     className="w-full rounded-lg max-h-[50vh] object-contain bg-black"
                   />
