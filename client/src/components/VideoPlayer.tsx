@@ -1,8 +1,14 @@
 import { useEffect, useState, useRef } from "react";
 
 function dataUriToBlob(dataUri: string): Blob {
-  const [header, base64] = dataUri.split(",");
-  const mimeMatch = header.match(/data:([^;]+)/);
+  const base64Marker = ";base64,";
+  const markerIndex = dataUri.indexOf(base64Marker);
+  if (markerIndex === -1) {
+    throw new Error("Not a valid base64 data URI");
+  }
+  const header = dataUri.substring(0, markerIndex);
+  const base64 = dataUri.substring(markerIndex + base64Marker.length);
+  const mimeMatch = header.match(/data:([^;]+(?:;codecs=[^;]+)?)/);
   const mime = mimeMatch ? mimeMatch[1] : "video/webm";
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
