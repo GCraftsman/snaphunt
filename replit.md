@@ -24,6 +24,7 @@ Preferred communication style: Simple, everyday language.
 - **Data Fetching:** TanStack React Query for API calls, with a custom `apiRequest` helper
 - **Animation:** Framer Motion for transitions, react-confetti for celebrations
 - **Camera:** react-webcam for in-browser photo capture
+- **PWA:** Installable as a Progressive Web App on iOS and Android. Manifest at `client/public/manifest.json`, service worker at `client/public/sw.js`, with cache-first-with-network-fallback strategy. iOS meta tags for standalone mode included in `index.html`.
 - **Styling:** Tailwind CSS with CSS variables for theming, custom fonts (Chakra Petch display, Inter body) loaded from Google Fonts
 
 ### Backend (server/)
