@@ -58,6 +58,15 @@ export interface GameSettings {
   durationMinutes: number;
   teamCount: number;
   countdownSeconds: number;
+  trackLocations?: boolean;
+}
+
+export interface LocationUpdate {
+  playerId: string;
+  teamId: number | null;
+  latitude: number;
+  longitude: number;
+  timestamp: string;
 }
 
 interface GameContextType {
@@ -78,6 +87,8 @@ interface GameContextType {
   sessionToken: string | null;
   countdownValue: number;
   connected: boolean;
+  trackLocations: boolean;
+  playerLocations: Map<string, LocationUpdate>;
 
   createHunt: (items: { description: string; points: number; verificationMode?: string; mediaType?: string; videoLengthSeconds?: number }[], settings: GameSettings, teamNames?: string[], huntName?: string) => Promise<string | null>;
   joinHunt: (code: string, name: string) => Promise<boolean>;
@@ -118,6 +129,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [connected, setConnected] = useState(false);
   const [uploadingItems, setUploadingItems] = useState<Set<number>>(new Set());
+  const [trackLocations, setTrackLocations] = useState(false);
+  const [playerLocations, setPlayerLocations] = useState<Map<string, LocationUpdate>>(new Map());
 
   const [gameStartTime, setGameStartTime] = useState<string | null>(null);
   const [durationMinutes, setDurationMinutes] = useState(60);
@@ -135,7 +148,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     ws.onopen = () => {
       setConnected(true);
-      ws.send(JSON.stringify({ type: "join_hunt", huntId: hId }));
+      const stored = sessionStorage.getItem(SESSION_KEY);
+      let token: string | undefined;
+      if (stored) {
+        try { token = JSON.parse(stored).sessionToken; } catch {}
+      }
+      ws.send(JSON.stringify({ type: "join_hunt", huntId: hId, sessionToken: token }));
     };
 
     ws.onclose = () => {
@@ -164,7 +182,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             durationMinutes: d.hunt.durationMinutes,
             teamCount: d.hunt.teamCount,
             countdownSeconds: d.hunt.countdownSeconds,
+            trackLocations: d.hunt.trackLocations,
           });
+          setTrackLocations(d.hunt.trackLocations || false);
           if (d.hunt.gameStartTime) {
             setGameStartTime(d.hunt.gameStartTime);
             setDurationMinutes(d.hunt.durationMinutes);
@@ -233,6 +253,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         case "submission_withdrawn":
           setPendingSubmissions(prev => prev.filter(s => s.id !== msg.data.submissionId));
           break;
+        case "location_update":
+          setPlayerLocations(prev => {
+            const next = new Map(prev);
+            next.set(msg.data.playerId, msg.data);
+            return next;
+          });
+          break;
       }
     };
   }, [huntId, toast, currentUser?.id]);
@@ -259,6 +286,43 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return () => clearInterval(interval);
     }
   }, [status, gameStartTime, durationMinutes]);
+
+  useEffect(() => {
+    if (status !== "active" || !trackLocations || !currentUser || currentUser.isProctor) return;
+    if (!("geolocation" in navigator)) return;
+
+    let watchId: number | null = null;
+    let lastSendTime = 0;
+    const SEND_INTERVAL = 30000;
+
+    const sendPing = (lat: number, lng: number) => {
+      const now = Date.now();
+      if (now - lastSendTime < SEND_INTERVAL) return;
+      lastSendTime = now;
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: "location_ping",
+          latitude: lat,
+          longitude: lng,
+        }));
+      }
+    };
+
+    watchId = navigator.geolocation.watchPosition(
+      (pos) => sendPing(pos.coords.latitude, pos.coords.longitude),
+      (err) => {
+        console.warn("Geolocation error:", err.message);
+        if (err.code === err.PERMISSION_DENIED) {
+          toast({ title: "Location Access Denied", description: "Enable location permissions to appear on the proctor's map.", variant: "destructive" });
+        }
+      },
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+    );
+
+    return () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [status, trackLocations, currentUser]);
 
   const saveSession = (hId: string, token: string, player: Player) => {
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({ huntId: hId, sessionToken: token, player }));
@@ -549,6 +613,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         sessionToken,
         countdownValue,
         connected,
+        trackLocations,
+        playerLocations,
         createHunt,
         joinHunt,
         joinTeam,

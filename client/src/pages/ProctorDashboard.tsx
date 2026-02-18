@@ -18,9 +18,12 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight, Video, Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight, Video, Loader2, MapPin, Map } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
+import { LiveMap } from "@/components/LiveMap";
+import { ReplayMap } from "@/components/ReplayMap";
 
 function LoginPrompt() {
   return (
@@ -284,6 +287,7 @@ export default function ProctorDashboard() {
     createHunt, status, players, teams, lockTeams, startCountdown, stopGame,
     huntCode, isLocked, huntId, currentUser, items, timeRemaining, completedSubmissions,
     pendingSubmissions, rejectedSubmissions, reviewSubmission, resetGame, countdownValue,
+    trackLocations: gameTrackLocations,
   } = useGame();
   const [_, setLocation] = useLocation();
   const [showSetup, setShowSetup] = useState(false);
@@ -305,6 +309,7 @@ export default function ProctorDashboard() {
   const [newItemPoints, setNewItemPoints] = useState(100);
   const [creating, setCreating] = useState(false);
   const [cloningHunt, setCloningHunt] = useState(false);
+  const [trackLocations, setTrackLocations] = useState(false);
 
   useEffect(() => {
     const names = Array.from({ length: teamCount }, (_, i) => teamNames[i] || `Team ${i + 1}`);
@@ -323,6 +328,7 @@ export default function ProctorDashboard() {
       setHuntName(data.hunt.name || "Scavenger Hunt");
       setDuration(data.hunt.durationMinutes || 60);
       setCountdown(data.hunt.countdownSeconds || 10);
+      setTrackLocations(data.hunt.trackLocations || false);
       setCustomItems(data.items);
       const clonedTeamCount = data.teamNames.length || 4;
       setTeamCount(clonedTeamCount);
@@ -359,6 +365,7 @@ export default function ProctorDashboard() {
       durationMinutes: duration,
       teamCount,
       countdownSeconds: countdown,
+      trackLocations,
     }, teamNames, huntName);
     setCreating(false);
     setShowSetup(false);
@@ -620,6 +627,34 @@ export default function ProctorDashboard() {
           </Card>
         )}
 
+        {gameTrackLocations && status === "active" && (
+          <Card className="bg-card/50 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Map className="w-5 h-5 text-secondary" /> Live Player Map
+              </CardTitle>
+              <CardDescription>Real-time player positions during the hunt</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <LiveMap />
+            </CardContent>
+          </Card>
+        )}
+
+        {gameTrackLocations && status === "finished" && huntId && (
+          <Card className="bg-card/50 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Map className="w-5 h-5 text-secondary" /> Game Replay
+              </CardTitle>
+              <CardDescription>Watch the game unfold on the map with player trails and submissions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ReplayMap huntId={huntId} />
+            </CardContent>
+          </Card>
+        )}
+
         {reviewingSubmission && (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setReviewingSubmission(null)}>
             <div className="bg-card rounded-xl border border-white/10 max-w-lg w-full overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -740,6 +775,13 @@ export default function ProctorDashboard() {
                     <span className="font-mono text-primary text-xl">{countdown} sec</span>
                   </div>
                   <Input type="number" value={countdown} onChange={(e) => setCountdown(Number(e.target.value))} className="max-w-[100px]" />
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <div className="space-y-1">
+                    <Label className="text-lg flex items-center gap-2"><MapPin className="w-4 h-4" /> Track Player Locations</Label>
+                    <p className="text-sm text-muted-foreground">Enable GPS tracking to see player movement on a live map and replay after the game.</p>
+                  </div>
+                  <Switch checked={trackLocations} onCheckedChange={setTrackLocations} data-testid="switch-track-locations" />
                 </div>
               </CardContent>
             </Card>

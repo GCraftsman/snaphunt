@@ -1,12 +1,13 @@
 import { db } from "./db";
 import { eq, and, or, desc } from "drizzle-orm";
 import {
-  hunts, teams, players, scavengerItems, submissions,
+  hunts, teams, players, scavengerItems, submissions, locationPings,
   type Hunt, type InsertHunt,
   type Team, type InsertTeam,
   type Player, type InsertPlayer,
   type ScavengerItem, type InsertScavengerItem,
   type Submission, type InsertSubmission,
+  type LocationPing, type InsertLocationPing,
 } from "@shared/schema";
 import { randomBytes } from "crypto";
 
@@ -45,6 +46,10 @@ export interface IStorage {
   updateSubmission(id: number, data: Partial<Submission>): Promise<Submission>;
   deleteSubmission(id: number): Promise<void>;
   getPendingSubmissionsByHunt(huntId: string): Promise<Submission[]>;
+
+  createLocationPing(data: InsertLocationPing): Promise<LocationPing>;
+  getLocationPingsByHunt(huntId: string): Promise<LocationPing[]>;
+  getLatestLocationPings(huntId: string): Promise<LocationPing[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -87,6 +92,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteHunt(id: string): Promise<void> {
     await db.transaction(async (tx) => {
+      await tx.delete(locationPings).where(eq(locationPings.huntId, id));
       await tx.delete(submissions).where(eq(submissions.huntId, id));
       await tx.delete(scavengerItems).where(eq(scavengerItems.huntId, id));
       await tx.delete(players).where(eq(players.huntId, id));
@@ -187,6 +193,32 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(submissions).where(
       and(eq(submissions.huntId, huntId), eq(submissions.status, "pending"))
     );
+  }
+
+  async createLocationPing(data: InsertLocationPing): Promise<LocationPing> {
+    const [ping] = await db.insert(locationPings).values(data).returning();
+    return ping;
+  }
+
+  async getLocationPingsByHunt(huntId: string): Promise<LocationPing[]> {
+    return db.select().from(locationPings)
+      .where(eq(locationPings.huntId, huntId))
+      .orderBy(locationPings.timestamp);
+  }
+
+  async getLatestLocationPings(huntId: string): Promise<LocationPing[]> {
+    const allPings = await db.select().from(locationPings)
+      .where(eq(locationPings.huntId, huntId))
+      .orderBy(desc(locationPings.timestamp));
+    const seen = new Set<string>();
+    const latest: LocationPing[] = [];
+    for (const ping of allPings) {
+      if (!seen.has(ping.playerId)) {
+        seen.add(ping.playerId);
+        latest.push(ping);
+      }
+    }
+    return latest;
   }
 }
 

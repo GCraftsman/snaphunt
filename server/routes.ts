@@ -75,6 +75,8 @@ export async function registerRoutes(
 
   wss.on("connection", (ws) => {
     let huntId: string | null = null;
+    let wsPlayerId: string | null = null;
+    let wsPlayerTeamId: number | null = null;
 
     ws.on("message", async (raw) => {
       try {
@@ -86,10 +88,35 @@ export async function registerRoutes(
             huntConnections.set(huntId, new Set());
           }
           huntConnections.get(huntId)!.add(ws);
+
+          if (msg.sessionToken) {
+            const player = await storage.getPlayerByToken(msg.sessionToken);
+            if (player && player.huntId === huntId) {
+              wsPlayerId = player.id;
+              wsPlayerTeamId = player.teamId;
+            }
+          }
+
           const state = await getFullHuntState(huntId);
           if (state) {
             ws.send(JSON.stringify({ type: "full_state", data: state }));
           }
+        } else if (msg.type === "location_ping" && huntId && wsPlayerId) {
+          const { latitude, longitude } = msg;
+          if (latitude == null || longitude == null) return;
+          const hunt = await storage.getHunt(huntId);
+          if (!hunt || !hunt.trackLocations || hunt.status !== "active") return;
+          await storage.createLocationPing({
+            huntId,
+            playerId: wsPlayerId,
+            teamId: wsPlayerTeamId,
+            latitude,
+            longitude,
+          });
+          broadcastToHunt(huntId, {
+            type: "location_update",
+            data: { playerId: wsPlayerId, teamId: wsPlayerTeamId, latitude, longitude, timestamp: new Date().toISOString() },
+          });
         }
       } catch (e) {
         console.error("WS message error:", e);
@@ -122,6 +149,7 @@ export async function registerRoutes(
         durationMinutes: settings.durationMinutes || 60,
         countdownSeconds: settings.countdownSeconds || 10,
         teamCount: settings.teamCount || 4,
+        trackLocations: settings.trackLocations || false,
       });
 
       for (let i = 0; i < (settings.teamCount || 4); i++) {
@@ -675,6 +703,72 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
     } catch (error) {
       console.error("Error reviewing submission:", error);
       res.status(500).json({ error: "Failed to review submission" });
+    }
+  });
+
+  app.get("/api/hunts/:id/replay", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const userId = (req as any).user?.claims?.sub;
+      const hunt = await storage.getHunt(huntId);
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+
+      const pings = await storage.getLocationPingsByHunt(huntId);
+      const playersData = await storage.getPlayersByHunt(huntId);
+      const teamsData = await storage.getTeamsByHunt(huntId);
+      const subs = await storage.getSubmissionsByHunt(huntId);
+      const items = await storage.getItemsByHunt(huntId);
+
+      const verifiedSubs = subs.filter(s => s.verified).map(s => ({
+        itemId: s.itemId,
+        teamId: s.teamId,
+        playerId: s.playerId,
+        latitude: s.latitude,
+        longitude: s.longitude,
+        createdAt: s.createdAt,
+        description: items.find(i => i.id === s.itemId)?.description || "",
+      }));
+
+      res.json({
+        hunt: {
+          id: hunt.id,
+          name: hunt.name,
+          gameStartTime: hunt.gameStartTime,
+          gameEndTime: hunt.gameEndTime,
+          durationMinutes: hunt.durationMinutes,
+          trackLocations: hunt.trackLocations,
+        },
+        players: playersData.filter(p => !p.isProctor).map(p => ({
+          id: p.id, name: p.name, teamId: p.teamId,
+        })),
+        teams: teamsData.map(t => ({ id: t.id, name: t.name, color: t.color, score: t.score })),
+        locationPings: pings.map(p => ({
+          playerId: p.playerId,
+          teamId: p.teamId,
+          latitude: p.latitude,
+          longitude: p.longitude,
+          timestamp: p.timestamp,
+        })),
+        submissions: verifiedSubs,
+      });
+    } catch (error) {
+      console.error("Error fetching replay:", error);
+      res.status(500).json({ error: "Failed to fetch replay data" });
+    }
+  });
+
+  app.get("/api/hunts/:id/locations", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const userId = (req as any).user?.claims?.sub;
+      const hunt = await storage.getHunt(huntId);
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+      const latest = await storage.getLatestLocationPings(huntId);
+      res.json(latest);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch locations" });
     }
   });
 

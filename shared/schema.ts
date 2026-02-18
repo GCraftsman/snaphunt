@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, serial, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, boolean, timestamp, serial, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -19,6 +19,7 @@ export const hunts = pgTable("hunts", {
   gameStartTime: timestamp("game_start_time"),
   gameEndTime: timestamp("game_end_time"),
   countdownStartTime: timestamp("countdown_start_time"),
+  trackLocations: boolean("track_locations").notNull().default(false),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
@@ -63,8 +64,24 @@ export const submissions = pgTable("submissions", {
   aiResponse: text("ai_response"),
   status: varchar("status", { length: 20 }).notNull().default("completed"),
   proctorFeedback: text("proctor_feedback"),
+  latitude: doublePrecision("latitude"),
+  longitude: doublePrecision("longitude"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
+
+export const locationPings = pgTable("location_pings", {
+  id: serial("id").primaryKey(),
+  huntId: varchar("hunt_id").notNull().references(() => hunts.id, { onDelete: "cascade" }),
+  playerId: varchar("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  teamId: integer("team_id").references(() => teams.id, { onDelete: "cascade" }),
+  latitude: doublePrecision("latitude").notNull(),
+  longitude: doublePrecision("longitude").notNull(),
+  timestamp: timestamp("timestamp").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertLocationPingSchema = createInsertSchema(locationPings).omit({ id: true, timestamp: true });
+export type LocationPing = typeof locationPings.$inferSelect;
+export type InsertLocationPing = z.infer<typeof insertLocationPingSchema>;
 
 export const insertHuntSchema = createInsertSchema(hunts).omit({ id: true, createdAt: true, code: true });
 export const insertTeamSchema = createInsertSchema(teams).omit({ id: true });
