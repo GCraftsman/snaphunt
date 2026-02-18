@@ -4,8 +4,46 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { useState, useEffect } from "react";
 import { useGame } from "@/context/GameContext";
-import { Camera, Gamepad2, User } from "lucide-react";
+import { Camera, Gamepad2, User, Download, Share, X } from "lucide-react";
 import { motion } from "framer-motion";
+
+function useInstallPrompt() {
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem("pwa_dismissed") === "1");
+
+  useEffect(() => {
+    if (window.matchMedia("(display-mode: standalone)").matches || (navigator as any).standalone) {
+      setIsInstalled(true);
+      return;
+    }
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    window.addEventListener("appinstalled", () => setIsInstalled(true));
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const install = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const result = await deferredPrompt.userChoice;
+    if (result.outcome === "accepted") setIsInstalled(true);
+    setDeferredPrompt(null);
+  };
+
+  const dismiss = () => {
+    setDismissed(true);
+    sessionStorage.setItem("pwa_dismissed", "1");
+  };
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+  const showBanner = !isInstalled && !dismissed;
+
+  return { deferredPrompt, install, isIOS, showBanner, dismiss };
+}
 
 export default function Home() {
   const [name, setName] = useState("");
@@ -13,6 +51,7 @@ export default function Home() {
   const [joining, setJoining] = useState(false);
   const { joinHunt, setSessionFromStorage } = useGame();
   const [_, setLocation] = useLocation();
+  const { deferredPrompt, install, isIOS, showBanner, dismiss } = useInstallPrompt();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -143,6 +182,42 @@ export default function Home() {
             </div>
           </CardContent>
         </Card>
+        {showBanner && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-4"
+          >
+            <Card className="border-primary/20 bg-card/50 backdrop-blur-sm">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-white mb-1">Install SnapHunt</p>
+                    {deferredPrompt ? (
+                      <>
+                        <p className="text-xs text-muted-foreground mb-3">Add to your home screen for the best experience</p>
+                        <Button size="sm" onClick={install} className="bg-primary hover:bg-primary/90" data-testid="button-install-pwa">
+                          <Download className="mr-2 w-3 h-3" /> Install App
+                        </Button>
+                      </>
+                    ) : isIOS ? (
+                      <p className="text-xs text-muted-foreground">
+                        Tap <Share className="inline w-3 h-3 mx-0.5 -mt-0.5" /> Share, then "Add to Home Screen" to install
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Tap your browser menu, then "Add to Home Screen" or "Install App"
+                      </p>
+                    )}
+                  </div>
+                  <button onClick={dismiss} className="text-muted-foreground hover:text-white p-1" data-testid="button-dismiss-install">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
       </motion.div>
     </div>
   );
