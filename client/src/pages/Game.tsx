@@ -528,7 +528,22 @@ export default function Game() {
             <>
               <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden min-h-[300px]">
                 {recordedUrl ? (
-                  <video src={recordedUrl} controls className="w-full h-full object-contain" />
+                  <video
+                    src={recordedUrl}
+                    controls
+                    playsInline
+                    className="w-full h-full object-contain"
+                    onLoadedMetadata={(e) => {
+                      const vid = e.currentTarget;
+                      if (vid.duration === Infinity || isNaN(vid.duration)) {
+                        vid.currentTime = 1e10;
+                        vid.addEventListener("timeupdate", function fix() {
+                          vid.removeEventListener("timeupdate", fix);
+                          vid.currentTime = 0;
+                        });
+                      }
+                    }}
+                  />
                 ) : (
                   <>
                     <video
@@ -605,10 +620,23 @@ export default function Game() {
               <div className="p-4 bg-background border-t border-white/10 grid grid-cols-2 gap-4">
                 {recordedUrl ? (
                   <>
-                    <Button variant="outline" onClick={() => {
+                    <Button variant="outline" onClick={async () => {
                       URL.revokeObjectURL(recordedUrl);
                       setRecordedUrl(null);
                       setRecordedBlob(null);
+                      setRecordingTime(0);
+                      chunksRef.current = [];
+                      const result = await acquireCamera();
+                      if (result.stream) {
+                        videoStreamRef.current = result.stream;
+                        setCameraReady(true);
+                        if (videoPreviewRef.current) {
+                          videoPreviewRef.current.srcObject = result.stream;
+                          videoPreviewRef.current.play().catch(() => {});
+                        }
+                      } else {
+                        setVideoError(result.error || "Camera access failed.");
+                      }
                     }} data-testid="button-retake-video">
                       <RotateCcw className="mr-2 w-4 h-4" /> Retake
                     </Button>
