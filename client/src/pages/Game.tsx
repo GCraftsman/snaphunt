@@ -528,22 +528,20 @@ export default function Game() {
             <>
               <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden min-h-[300px]">
                 {recordedUrl ? (
-                  <video
-                    src={recordedUrl}
-                    controls
-                    playsInline
-                    className="w-full h-full object-contain"
-                    onLoadedMetadata={(e) => {
-                      const vid = e.currentTarget;
-                      if (vid.duration === Infinity || isNaN(vid.duration)) {
-                        vid.currentTime = 1e10;
-                        vid.addEventListener("timeupdate", function fix() {
-                          vid.removeEventListener("timeupdate", fix);
-                          vid.currentTime = 0;
-                        });
-                      }
-                    }}
-                  />
+                  <div className="relative w-full h-full">
+                    <video
+                      src={recordedUrl}
+                      controls
+                      autoPlay
+                      loop
+                      playsInline
+                      preload="auto"
+                      className="w-full h-full object-contain"
+                    />
+                    <div className="absolute top-3 right-3 bg-black/70 rounded-full px-3 py-1">
+                      <span className="text-white text-xs font-mono">{recordingTime}s recorded</span>
+                    </div>
+                  </div>
                 ) : (
                   <>
                     <video
