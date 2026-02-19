@@ -51,6 +51,7 @@ export const scavengerItems = pgTable("scavenger_items", {
   verificationMode: varchar("verification_mode", { length: 20 }).notNull().default("ai"),
   mediaType: varchar("media_type", { length: 10 }).notNull().default("photo"),
   videoLengthSeconds: integer("video_length_seconds").notNull().default(20),
+  bonuses: jsonb("bonuses").default([]),
 });
 
 export const submissions = pgTable("submissions", {
@@ -67,6 +68,8 @@ export const submissions = pgTable("submissions", {
   proctorFeedback: text("proctor_feedback"),
   latitude: doublePrecision("latitude"),
   longitude: doublePrecision("longitude"),
+  bonusPoints: integer("bonus_points").notNull().default(0),
+  bonusDetails: jsonb("bonus_details").default([]),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 

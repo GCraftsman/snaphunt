@@ -22,6 +22,7 @@ interface ReplaySubmission {
   createdAt: string;
   description: string;
   points: number;
+  bonusPoints?: number;
   photoData: string;
   mediaType: "photo" | "video";
 }
@@ -72,7 +73,7 @@ function getRunningScores(submissions: ReplaySubmission[], teams: ReplayTeam[], 
     const subTime = new Date(sub.createdAt).getTime();
     if (subTime > currentTime) continue;
     const current = scores.get(sub.teamId) || 0;
-    scores.set(sub.teamId, current + sub.points);
+    scores.set(sub.teamId, current + sub.points + (sub.bonusPoints || 0));
   }
   return scores;
 }
@@ -239,15 +240,16 @@ export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; 
         const marker = L.marker([sub.latitude, sub.longitude], { icon: submissionIcon }).addTo(map);
         const teamName = data.teams.find(t => t.id === sub.teamId)?.name || "Team";
         const isVideo = sub.mediaType === "video";
+        const scoreLabel = (sub.bonusPoints || 0) > 0 ? `${sub.points}+${sub.bonusPoints}b` : `${sub.points}`;
         const mediaHtml = isVideo && sub.photoData
-          ? `<div style="position:relative;width:140px;"><video src="${sub.photoData}" style="width:140px;height:auto;border-radius:4px;display:block;" muted autoplay loop playsinline></video><div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.75);color:gold;font-weight:bold;font-size:13px;padding:2px 6px;border-radius:4px;">+${sub.points}</div></div>`
+          ? `<div style="position:relative;width:140px;"><video src="${sub.photoData}" style="width:140px;height:auto;border-radius:4px;display:block;" muted autoplay loop playsinline></video><div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.75);color:gold;font-weight:bold;font-size:13px;padding:2px 6px;border-radius:4px;">+${scoreLabel}</div></div>`
           : isVideo
             ? `<div style="width:140px;height:100px;background:#111;display:flex;align-items:center;justify-content:center;border-radius:4px;margin-bottom:4px;font-size:24px;">📹</div>`
             : sub.photoData
-              ? `<div style="position:relative;width:140px;"><img src="${sub.photoData}" style="width:140px;height:auto;border-radius:4px;display:block;" /><div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.75);color:gold;font-weight:bold;font-size:13px;padding:2px 6px;border-radius:4px;">+${sub.points}</div></div>`
+              ? `<div style="position:relative;width:140px;"><img src="${sub.photoData}" style="width:140px;height:auto;border-radius:4px;display:block;" /><div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.75);color:gold;font-weight:bold;font-size:13px;padding:2px 6px;border-radius:4px;">+${scoreLabel}</div></div>`
               : "";
         marker.bindPopup(
-          `<div style="text-align:center;min-width:140px;">${mediaHtml}<div style="font-size:11px;margin-top:2px;"><b style="color:${teamColor}">${teamName}</b></div><div style="font-size:11px;color:#ccc;">${sub.description}</div>${!sub.photoData ? `<div style="font-size:12px;color:gold;font-weight:bold;">+${sub.points} pts</div>` : ""}</div>`,
+          `<div style="text-align:center;min-width:140px;">${mediaHtml}<div style="font-size:11px;margin-top:2px;"><b style="color:${teamColor}">${teamName}</b></div><div style="font-size:11px;color:#ccc;">${sub.description}</div>${!sub.photoData ? `<div style="font-size:12px;color:gold;font-weight:bold;">+${scoreLabel} pts</div>` : ""}</div>`,
           { maxWidth: 200 }
         );
         submissionMarkersRef.current.set(subKey, marker);

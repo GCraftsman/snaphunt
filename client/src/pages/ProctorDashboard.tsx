@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight, Video, Loader2, MapPin, Map } from "lucide-react";
+import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight, Video, Loader2, MapPin, Map, Star } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
 import { LiveMap } from "@/components/LiveMap";
@@ -298,16 +298,17 @@ export default function ProctorDashboard() {
   const [showSetup, setShowSetup] = useState(false);
   const [reviewingSubmission, setReviewingSubmission] = useState<any | null>(null);
   const [rejectFeedback, setRejectFeedback] = useState("");
+  const [bonusAwards, setBonusAwards] = useState<{ bonusIndex: number; awarded: boolean; count?: number }[]>([]);
 
   const [huntName, setHuntName] = useState("Scavenger Hunt");
   const [duration, setDuration] = useState(60);
   const [teamCount, setTeamCount] = useState(4);
   const [countdown, setCountdown] = useState(10);
-  const [customItems, setCustomItems] = useState<{ description: string; points: number; verificationMode: string; mediaType: string; videoLengthSeconds: number }[]>([
-    { description: "Find a red stapler", points: 100, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20 },
-    { description: "Team high five", points: 200, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20 },
-    { description: "Human pyramid (3 people)", points: 500, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20 },
-    { description: "Something older than you", points: 150, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20 },
+  const [customItems, setCustomItems] = useState<{ description: string; points: number; verificationMode: string; mediaType: string; videoLengthSeconds: number; bonuses: { points: number; type: string; description: string }[] }[]>([
+    { description: "Find a red stapler", points: 100, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20, bonuses: [] },
+    { description: "Team high five", points: 200, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20, bonuses: [] },
+    { description: "Human pyramid (3 people)", points: 500, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20, bonuses: [] },
+    { description: "Something older than you", points: 150, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20, bonuses: [] },
   ]);
   const [teamNames, setTeamNames] = useState<string[]>(["Team 1", "Team 2", "Team 3", "Team 4"]);
   const [newItemText, setNewItemText] = useState("");
@@ -359,7 +360,7 @@ export default function ProctorDashboard() {
 
   const handleAddItem = () => {
     if (!newItemText) return;
-    setCustomItems([...customItems, { description: newItemText, points: newItemPoints, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20 }]);
+    setCustomItems([...customItems, { description: newItemText, points: newItemPoints, verificationMode: "ai", mediaType: "photo", videoLengthSeconds: 20, bonuses: [] }]);
     setNewItemText("");
   };
 
@@ -733,13 +734,16 @@ export default function ProctorDashboard() {
           </>
         )}
 
-        {reviewingSubmission && (
+        {reviewingSubmission && (() => {
+          const reviewItem = items.find(i => i.id === reviewingSubmission.itemId);
+          const itemBonuses = (reviewItem as any)?.bonuses || [];
+          return (
           <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setReviewingSubmission(null)}>
-            <div className="bg-card rounded-xl border border-white/10 max-w-lg w-full overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="bg-card rounded-xl border border-white/10 max-w-lg w-full overflow-hidden max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="p-4 border-b border-white/10">
                 <h3 className="text-lg font-bold">Review Submission</h3>
                 <p className="text-sm text-muted-foreground">
-                  {items.find(i => i.id === reviewingSubmission.itemId)?.description} &middot;{" "}
+                  {reviewItem?.description} &middot;{" "}
                   <span style={{ color: teams.find(t => t.id === reviewingSubmission.teamId)?.color }}>
                     {teams.find(t => t.id === reviewingSubmission.teamId)?.name}
                   </span>
@@ -758,6 +762,53 @@ export default function ProctorDashboard() {
                 )}
               </div>
               <div className="p-4 space-y-3 border-t border-white/10">
+                {itemBonuses.length > 0 && (
+                  <div className="space-y-2 p-3 rounded-lg bg-amber-400/5 border border-amber-400/20">
+                    <p className="text-xs font-semibold text-amber-400 flex items-center gap-1"><Star className="w-3 h-3" /> Bonus Points</p>
+                    {itemBonuses.map((bonus: any, bIdx: number) => {
+                      const award = bonusAwards.find(a => a.bonusIndex === bIdx);
+                      return (
+                        <div key={bIdx} className="flex items-center gap-2" data-testid={`review-bonus-${bIdx}`}>
+                          {bonus.type === "for_each" ? (
+                            <>
+                              <Input
+                                type="number"
+                                min={0}
+                                value={award?.count ?? 0}
+                                onChange={(e) => {
+                                  const count = Math.max(0, Number(e.target.value) || 0);
+                                  setBonusAwards(prev => {
+                                    const existing = prev.filter(a => a.bonusIndex !== bIdx);
+                                    return [...existing, { bonusIndex: bIdx, awarded: count > 0, count }];
+                                  });
+                                }}
+                                className="h-7 w-16 text-xs bg-transparent border-amber-400/20 text-amber-400"
+                                data-testid={`input-bonus-count-${bIdx}`}
+                              />
+                              <span className="text-xs text-amber-400">x +{bonus.points}pts</span>
+                              <span className="text-xs text-muted-foreground flex-1">{bonus.description}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Switch
+                                checked={award?.awarded ?? false}
+                                onCheckedChange={(checked) => {
+                                  setBonusAwards(prev => {
+                                    const existing = prev.filter(a => a.bonusIndex !== bIdx);
+                                    return [...existing, { bonusIndex: bIdx, awarded: checked }];
+                                  });
+                                }}
+                                data-testid={`switch-bonus-${bIdx}`}
+                              />
+                              <span className="text-xs text-amber-400">+{bonus.points}pts</span>
+                              <span className="text-xs text-muted-foreground flex-1">{bonus.type === "if" ? "if" : "for"}: {bonus.description}</span>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <Input
                   placeholder="Feedback (optional for approve, recommended for reject)"
                   value={rejectFeedback}
@@ -768,8 +819,10 @@ export default function ProctorDashboard() {
                   <Button
                     className="flex-1 bg-green-500 hover:bg-green-600 text-black font-bold"
                     onClick={async () => {
-                      await reviewSubmission(reviewingSubmission.id, true, rejectFeedback || undefined);
+                      await reviewSubmission(reviewingSubmission.id, true, rejectFeedback || undefined, bonusAwards.length > 0 ? bonusAwards : undefined);
                       setReviewingSubmission(null);
+                      setBonusAwards([]);
+                      setRejectFeedback("");
                     }}
                     data-testid="button-approve-submission"
                   >
@@ -781,6 +834,8 @@ export default function ProctorDashboard() {
                     onClick={async () => {
                       await reviewSubmission(reviewingSubmission.id, false, rejectFeedback || "Not a match");
                       setReviewingSubmission(null);
+                      setBonusAwards([]);
+                      setRejectFeedback("");
                     }}
                     data-testid="button-reject-submission"
                   >
@@ -790,7 +845,8 @@ export default function ProctorDashboard() {
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
       </div>
     );
   }
@@ -1017,7 +1073,89 @@ export default function ProctorDashboard() {
                               <Eye className="w-2.5 h-2.5 mr-0.5" /> Proctor Only
                             </Badge>
                           )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const updated = [...customItems];
+                              updated[idx] = { ...item, bonuses: [...item.bonuses, { points: 50, type: "if", description: "" }] };
+                              if (updated[idx].bonuses.length > 0) updated[idx].verificationMode = "proctor";
+                              setCustomItems(updated);
+                            }}
+                            className="text-xs px-2 py-1 h-7 text-amber-400 border-amber-400/30 bg-amber-400/10 border ml-auto"
+                            data-testid={`button-add-bonus-${idx}`}
+                          >
+                            <Star className="w-3 h-3 mr-1" /> + Bonus
+                          </Button>
                         </div>
+                        {item.bonuses.length > 0 && (
+                          <div className="ml-16 space-y-1">
+                            {item.bonuses.map((bonus, bIdx) => (
+                              <div key={bIdx} className="flex items-center gap-1.5" data-testid={`bonus-row-${idx}-${bIdx}`}>
+                                <span className="text-amber-400 text-xs">+</span>
+                                <Input
+                                  type="number"
+                                  value={bonus.points}
+                                  onChange={(e) => {
+                                    const updated = [...customItems];
+                                    const bonuses = [...item.bonuses];
+                                    bonuses[bIdx] = { ...bonus, points: Number(e.target.value) || 0 };
+                                    updated[idx] = { ...item, bonuses };
+                                    setCustomItems(updated);
+                                  }}
+                                  className="h-6 w-14 text-xs bg-transparent border-amber-400/20 text-amber-400"
+                                  data-testid={`input-bonus-points-${idx}-${bIdx}`}
+                                />
+                                <Select
+                                  value={bonus.type}
+                                  onValueChange={(val) => {
+                                    const updated = [...customItems];
+                                    const bonuses = [...item.bonuses];
+                                    bonuses[bIdx] = { ...bonus, type: val };
+                                    updated[idx] = { ...item, bonuses };
+                                    setCustomItems(updated);
+                                  }}
+                                >
+                                  <SelectTrigger className="h-6 w-24 text-xs border-amber-400/20 bg-transparent text-amber-400" data-testid={`select-bonus-type-${idx}-${bIdx}`}>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="if">if</SelectItem>
+                                    <SelectItem value="for">for</SelectItem>
+                                    <SelectItem value="for_each">for each</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <Input
+                                  value={bonus.description}
+                                  onChange={(e) => {
+                                    const updated = [...customItems];
+                                    const bonuses = [...item.bonuses];
+                                    bonuses[bIdx] = { ...bonus, description: e.target.value };
+                                    updated[idx] = { ...item, bonuses };
+                                    setCustomItems(updated);
+                                  }}
+                                  placeholder="bonus condition..."
+                                  className="h-6 text-xs bg-transparent border-amber-400/20 flex-1"
+                                  data-testid={`input-bonus-desc-${idx}-${bIdx}`}
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    const updated = [...customItems];
+                                    const bonuses = item.bonuses.filter((_, i) => i !== bIdx);
+                                    updated[idx] = { ...item, bonuses };
+                                    setCustomItems(updated);
+                                  }}
+                                  className="h-6 w-6 hover:text-destructive text-muted-foreground"
+                                  data-testid={`button-remove-bonus-${idx}-${bIdx}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

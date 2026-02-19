@@ -18,6 +18,12 @@ export interface Team {
   huntId: string;
 }
 
+export interface ItemBonus {
+  points: number;
+  type: "if" | "for" | "for_each";
+  description: string;
+}
+
 export interface ScavengerItem {
   id: number;
   description: string;
@@ -27,6 +33,7 @@ export interface ScavengerItem {
   verificationMode: "ai" | "proctor";
   mediaType: "photo" | "video";
   videoLengthSeconds: number;
+  bonuses: ItemBonus[];
 }
 
 export interface CompletedSubmission {
@@ -38,6 +45,7 @@ export interface CompletedSubmission {
   longitude?: number | null;
   description?: string;
   points?: number;
+  bonusPoints?: number;
 }
 
 export interface PendingSubmission {
@@ -96,7 +104,7 @@ interface GameContextType {
   showStandings: boolean;
   playerLocations: Map<string, LocationUpdate>;
 
-  createHunt: (items: { description: string; points: number; verificationMode?: string; mediaType?: string; videoLengthSeconds?: number }[], settings: GameSettings, teamNames?: string[], huntName?: string) => Promise<string | null>;
+  createHunt: (items: { description: string; points: number; verificationMode?: string; mediaType?: string; videoLengthSeconds?: number; bonuses?: { points: number; type: string; description: string }[] }[], settings: GameSettings, teamNames?: string[], huntName?: string) => Promise<string | null>;
   joinHunt: (code: string, name: string) => Promise<boolean>;
   joinTeam: (teamId: number) => void;
   lockTeams: () => void;
@@ -104,7 +112,7 @@ interface GameContextType {
   stopGame: () => Promise<boolean>;
   submitPhoto: (itemId: number, photoData: string) => Promise<{ verified: boolean; aiResponse: string; points: number; status?: string }>;
   submitVideo: (itemId: number, videoBlob: Blob) => void;
-  reviewSubmission: (submissionId: number, approved: boolean, feedback?: string) => Promise<boolean>;
+  reviewSubmission: (submissionId: number, approved: boolean, feedback?: string, bonusAwarded?: any[]) => Promise<boolean>;
   redoSubmission: (itemId: number) => Promise<boolean>;
   resetGame: () => void;
   setSessionFromStorage: () => boolean;
@@ -240,6 +248,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             longitude: msg.data.longitude,
             description: msg.data.description,
             points: msg.data.points,
+            bonusPoints: msg.data.bonusPoints || 0,
           }]);
           setPendingSubmissions(prev => prev.filter(s => !(s.itemId === msg.data.itemId && s.teamId === msg.data.teamId)));
           setTeams(prev => prev.map(t => t.id === msg.data.teamId ? { ...t, score: msg.data.newScore } : t));
@@ -357,7 +366,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, [connectWebSocket]);
 
   const createHunt = async (
-    itemList: { description: string; points: number; verificationMode?: string }[],
+    itemList: { description: string; points: number; verificationMode?: string; mediaType?: string; videoLengthSeconds?: number; bonuses?: { points: number; type: string; description: string }[] }[],
     gameSettings: GameSettings,
     teamNames?: string[],
     huntName?: string
@@ -565,14 +574,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     reader.readAsDataURL(videoBlob);
   };
 
-  const reviewSubmission = async (submissionId: number, approved: boolean, feedback?: string): Promise<boolean> => {
+  const reviewSubmission = async (submissionId: number, approved: boolean, feedback?: string, bonusAwarded?: any[]): Promise<boolean> => {
     if (!huntId) return false;
     try {
       const res = await fetch(`/api/hunts/${huntId}/review-submission`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ submissionId, approved, feedback }),
+        body: JSON.stringify({ submissionId, approved, feedback, bonusAwarded }),
       });
       if (!res.ok) {
         const data = await res.json();

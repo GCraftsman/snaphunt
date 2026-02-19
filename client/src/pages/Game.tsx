@@ -11,7 +11,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot, RotateCcw, AlertTriangle, Video, Loader2, Square } from "lucide-react";
+import { Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot, RotateCcw, AlertTriangle, Video, Loader2, Square, Star } from "lucide-react";
 import { motion } from "framer-motion";
 import Confetti from "react-confetti";
 import { useLocation } from "wouter";
@@ -441,8 +441,22 @@ export default function Game() {
                       <Badge variant={completed ? "secondary" : "outline"} className={completed ? "bg-green-500 text-black" : "border-primary text-primary"}>
                         {item.points} PTS
                       </Badge>
+                      {item.bonuses && item.bonuses.length > 0 && (
+                        <Badge variant="outline" className="border-amber-400/30 text-amber-400 text-[10px]">
+                          <Star className="w-2.5 h-2.5 mr-0.5" /> Bonus
+                        </Badge>
+                      )}
                     </div>
                   </div>
+                  {item.bonuses && item.bonuses.length > 0 && (
+                    <div className="mt-1 space-y-0.5">
+                      {item.bonuses.map((b: any, bIdx: number) => (
+                        <p key={bIdx} className="text-[10px] text-amber-400/70">
+                          +{b.points}pts {b.type === "for_each" ? "for each" : b.type}: {b.description}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                   {uploading && (
                     <div className="text-xs text-blue-400 flex items-center gap-1 mt-2">
                       <Loader2 className="w-3 h-3 animate-spin" /> Uploading...

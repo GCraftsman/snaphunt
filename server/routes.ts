@@ -51,7 +51,7 @@ async function getFullHuntState(huntId: string) {
     items,
     submissions: subs.filter(s => s.verified).map(s => {
       const item = items.find(i => i.id === s.itemId);
-      return { itemId: s.itemId, teamId: s.teamId, photoData: s.photoData, mediaType: s.mediaType || "photo", latitude: s.latitude, longitude: s.longitude, description: item?.description || "", points: item?.points || 0 };
+      return { itemId: s.itemId, teamId: s.teamId, photoData: s.photoData, mediaType: s.mediaType || "photo", latitude: s.latitude, longitude: s.longitude, description: item?.description || "", points: item?.points || 0, bonusPoints: s.bonusPoints || 0 };
     }),
     pendingSubmissions: subs.filter(s => s.status === "pending").map(s => ({
       id: s.id, itemId: s.itemId, teamId: s.teamId, playerId: s.playerId, photoData: s.photoData, mediaType: s.mediaType || "photo", createdAt: s.createdAt,
@@ -171,14 +171,18 @@ export async function registerRoutes(
       if (items && Array.isArray(items)) {
         for (let i = 0; i < items.length; i++) {
           const mediaType = items[i].mediaType || "photo";
+          const bonuses = items[i].bonuses || [];
+          const hasBonuses = Array.isArray(bonuses) && bonuses.length > 0;
+          const verificationMode = hasBonuses || mediaType === "video" ? "proctor" : (items[i].verificationMode || "ai");
           await storage.createItem({
             huntId: hunt.id,
             description: items[i].description,
             points: items[i].points || 100,
             sortOrder: i,
-            verificationMode: mediaType === "video" ? "proctor" : (items[i].verificationMode || "ai"),
+            verificationMode,
             mediaType,
             videoLengthSeconds: items[i].videoLengthSeconds || 20,
+            bonuses,
           });
         }
       }
@@ -264,6 +268,7 @@ export async function registerRoutes(
           verificationMode: i.verificationMode || "ai",
           mediaType: i.mediaType || "photo",
           videoLengthSeconds: i.videoLengthSeconds || 20,
+          bonuses: i.bonuses || [],
         })),
         teamNames: huntTeams.map(t => t.name),
       });
@@ -664,7 +669,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
       if (!hunt) return res.status(404).json({ error: "Hunt not found" });
       if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
 
-      const { submissionId, approved, feedback } = req.body;
+      const { submissionId, approved, feedback, bonusAwarded } = req.body;
       const submission = await storage.getSubmission(submissionId);
       if (!submission || submission.huntId !== huntId) {
         return res.status(404).json({ error: "Submission not found" });
@@ -677,19 +682,47 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
         const item = await storage.getItem(submission.itemId);
         if (!item) return res.status(404).json({ error: "Item not found" });
 
+        let totalBonusPoints = 0;
+        const bonusDetails: any[] = [];
+        const itemBonuses = (item.bonuses as any[]) || [];
+        if (Array.isArray(bonusAwarded) && itemBonuses.length > 0) {
+          for (let i = 0; i < itemBonuses.length; i++) {
+            const bonus = itemBonuses[i];
+            const award = bonusAwarded[i];
+            if (!award) continue;
+            if (bonus.type === "for_each") {
+              const count = Number(award.count) || 0;
+              if (count > 0) {
+                const pts = bonus.points * count;
+                totalBonusPoints += pts;
+                bonusDetails.push({ index: i, description: bonus.description, points: bonus.points, count, total: pts });
+              }
+            } else {
+              if (award.checked) {
+                totalBonusPoints += bonus.points;
+                bonusDetails.push({ index: i, description: bonus.description, points: bonus.points, total: bonus.points });
+              }
+            }
+          }
+        }
+
         await storage.updateSubmission(submissionId, {
           verified: true,
           status: "approved",
           proctorFeedback: feedback || "Approved by proctor",
+          bonusPoints: totalBonusPoints,
+          bonusDetails,
         });
 
-        const team = await storage.updateTeamScore(submission.teamId, item.points);
+        const totalPoints = item.points + totalBonusPoints;
+        const team = await storage.updateTeamScore(submission.teamId, totalPoints);
         broadcastToHunt(huntId, {
           type: "item_completed",
           data: {
             itemId: submission.itemId,
             teamId: submission.teamId,
             points: item.points,
+            bonusPoints: totalBonusPoints,
             newScore: team.score,
             photoData: submission.photoData,
             mediaType: submission.mediaType || "photo",
@@ -747,6 +780,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
           playerId: s.playerId,
           description: item?.description || "",
           points: item?.points || 0,
+          bonusPoints: s.bonusPoints || 0,
           photoData: s.photoData,
           mediaType: s.mediaType || "photo",
           teamName: team?.name || "",
@@ -823,6 +857,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
           createdAt: s.createdAt,
           description: item?.description || "",
           points: item?.points || 0,
+          bonusPoints: s.bonusPoints || 0,
           photoData: s.photoData,
           mediaType: s.mediaType || "photo",
         };

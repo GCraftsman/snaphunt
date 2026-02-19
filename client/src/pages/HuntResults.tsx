@@ -36,6 +36,7 @@ interface ResultsSubmission {
   playerId: string;
   description: string;
   points: number;
+  bonusPoints?: number;
   photoData: string;
   mediaType: string;
   teamName: string;
@@ -296,7 +297,7 @@ export default function HuntResults() {
                       </p>
                     </div>
                     <div className="absolute top-1.5 right-1.5">
-                      <span className="text-[10px] font-mono font-bold bg-black/60 text-yellow-400 px-1.5 py-0.5 rounded">+{sub.points}</span>
+                      <span className="text-[10px] font-mono font-bold bg-black/60 text-yellow-400 px-1.5 py-0.5 rounded">+{(sub.bonusPoints || 0) > 0 ? `${sub.points}+${sub.bonusPoints}b` : sub.points}</span>
                     </div>
                     <div className="absolute top-1.5 left-1.5">
                       <div className="w-3 h-3 rounded-full border border-white/50" style={{ backgroundColor: sub.teamColor }} />
