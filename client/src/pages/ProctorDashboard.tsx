@@ -926,10 +926,29 @@ export default function ProctorDashboard() {
                   <div className="space-y-2">
                     {customItems.map((item, idx) => (
                       <div key={idx} className="p-3 bg-card rounded-lg border border-white/5 hover:border-primary/30 transition-colors group space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-4 flex-1 min-w-0">
-                            <span className="font-mono text-primary font-bold w-12 text-right shrink-0">{item.points}</span>
-                            <span className="truncate">{item.description}</span>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <Input
+                              type="number"
+                              value={item.points}
+                              onChange={(e) => {
+                                const updated = [...customItems];
+                                updated[idx] = { ...item, points: Number(e.target.value) };
+                                setCustomItems(updated);
+                              }}
+                              className="w-16 h-8 text-sm font-mono text-primary font-bold text-right bg-transparent border-white/10 shrink-0"
+                              data-testid={`input-item-points-${idx}`}
+                            />
+                            <Input
+                              value={item.description}
+                              onChange={(e) => {
+                                const updated = [...customItems];
+                                updated[idx] = { ...item, description: e.target.value };
+                                setCustomItems(updated);
+                              }}
+                              className="h-8 text-sm bg-transparent border-white/10 flex-1"
+                              data-testid={`input-item-description-${idx}`}
+                            />
                           </div>
                           <Button
                             variant="ghost"
