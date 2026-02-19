@@ -20,7 +20,7 @@ Preferred communication style: Simple, everyday language.
 
 ### Frontend (client/)
 - **Framework:** React with TypeScript, bundled by Vite
-- **Routing:** Wouter (lightweight client-side router) with 4 main pages: Home, ProctorDashboard, Lobby, Game
+- **Routing:** Wouter (lightweight client-side router) with 5 main pages: Home, ProctorDashboard, HuntResults, Lobby, Game
 - **State Management:** React Context (`GameContext`) manages all game state including WebSocket connection, player info, teams, items, submissions, and countdown timers. Session persistence uses `sessionStorage`.
 - **UI Components:** shadcn/ui (new-york style) built on Radix UI primitives with Tailwind CSS v4. Dark arcade-themed design with vibrant neon colors (hot pink primary, cyan secondary, purple accent).
 - **Data Fetching:** TanStack React Query for API calls, with a custom `apiRequest` helper
