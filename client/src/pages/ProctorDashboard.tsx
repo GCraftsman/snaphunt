@@ -206,7 +206,12 @@ function ProctorHome({ onCreateNew, onCloneHunt, isCloning }: { onCreateNew: () 
               {pastHunts.map(hunt => {
                 const winner = [...hunt.teams].sort((a, b) => b.score - a.score)[0];
                 return (
-                  <Card key={hunt.id} className="border-white/5 bg-card/30" data-testid={`card-past-hunt-${hunt.id}`}>
+                  <Card
+                    key={hunt.id}
+                    className="border-white/5 bg-card/30 cursor-pointer hover:border-primary/30 transition-colors"
+                    onClick={() => setLocation(`/proctor/hunt/${hunt.id}`)}
+                    data-testid={`card-past-hunt-${hunt.id}`}
+                  >
                     <CardContent className="py-4">
                       <div className="flex items-center justify-between">
                         <div>
@@ -228,7 +233,7 @@ function ProctorHome({ onCreateNew, onCloneHunt, isCloning }: { onCreateNew: () 
                           variant="outline"
                           size="sm"
                           className="text-xs"
-                          onClick={() => onCloneHunt(hunt.id)}
+                          onClick={(e) => { e.stopPropagation(); onCloneHunt(hunt.id); }}
                           disabled={isCloning}
                           data-testid={`button-clone-${hunt.id}`}
                         >
@@ -239,7 +244,7 @@ function ProctorHome({ onCreateNew, onCloneHunt, isCloning }: { onCreateNew: () 
                           variant="outline"
                           size="sm"
                           className="text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
-                          onClick={() => setDeletingHuntId(hunt.id)}
+                          onClick={(e) => { e.stopPropagation(); setDeletingHuntId(hunt.id); }}
                           data-testid={`button-delete-${hunt.id}`}
                         >
                           <Trash2 className="w-3 h-3 mr-1" /> Delete

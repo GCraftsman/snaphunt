@@ -722,6 +722,69 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
     }
   });
 
+  app.get("/api/hunts/:id/results", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const userId = (req as any).user?.claims?.sub;
+      const hunt = await storage.getHunt(huntId);
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+      if (hunt.status !== "finished") return res.status(400).json({ error: "Game is not finished" });
+
+      const teamsData = await storage.getTeamsByHunt(huntId);
+      const playersData = await storage.getPlayersByHunt(huntId);
+      const items = await storage.getItemsByHunt(huntId);
+      const subs = await storage.getSubmissionsByHunt(huntId);
+
+      const verifiedSubs = subs.filter(s => s.verified).map(s => {
+        const item = items.find(i => i.id === s.itemId);
+        const team = teamsData.find(t => t.id === s.teamId);
+        const player = playersData.find(p => p.id === s.playerId);
+        return {
+          id: s.id,
+          itemId: s.itemId,
+          teamId: s.teamId,
+          playerId: s.playerId,
+          description: item?.description || "",
+          points: item?.points || 0,
+          photoData: s.photoData,
+          mediaType: s.mediaType || "photo",
+          teamName: team?.name || "",
+          teamColor: team?.color || "",
+          playerName: player?.name || "",
+          createdAt: s.createdAt,
+        };
+      });
+
+      res.json({
+        hunt: {
+          id: hunt.id,
+          name: hunt.name,
+          code: hunt.code,
+          gameStartTime: hunt.gameStartTime,
+          gameEndTime: hunt.gameEndTime,
+          durationMinutes: hunt.durationMinutes,
+          trackLocations: hunt.trackLocations,
+          showStandings: hunt.showStandings,
+          createdAt: hunt.createdAt,
+        },
+        teams: teamsData.map(t => ({ id: t.id, name: t.name, color: t.color, score: t.score })),
+        players: playersData.filter(p => !p.isProctor).map(p => ({ id: p.id, name: p.name, teamId: p.teamId })),
+        items: items.map(i => ({
+          id: i.id,
+          description: i.description,
+          points: i.points,
+          verificationMode: i.verificationMode || "ai",
+          mediaType: i.mediaType || "photo",
+        })),
+        submissions: verifiedSubs,
+      });
+    } catch (error) {
+      console.error("Error fetching results:", error);
+      res.status(500).json({ error: "Failed to fetch results" });
+    }
+  });
+
   app.get("/api/hunts/:id/replay", async (req: Request, res: Response) => {
     try {
       const huntId = getParam(req.params, "id");
