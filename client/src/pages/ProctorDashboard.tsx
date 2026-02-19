@@ -624,14 +624,6 @@ export default function ProctorDashboard() {
                                   <span className="font-bold text-sm flex-1 truncate" style={{ color: team.color }}>{team.name}</span>
                                   <span className="font-mono font-bold text-sm">{team.score}</span>
                                 </div>
-                                <ul className="space-y-0.5 ml-7">
-                                  {players.filter(p => p.teamId === team.id).map(p => (
-                                    <li key={p.id} className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-player-${p.id}`}>
-                                      <span className="w-1 h-1 rounded-full bg-white/30" />
-                                      {p.name}
-                                    </li>
-                                  ))}
-                                </ul>
                               </div>
                             ))}
                           </div>

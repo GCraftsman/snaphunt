@@ -20,16 +20,18 @@ function createSubmissionIcon(color: string): L.DivIcon {
 
 function createSubmissionPopupHtml(sub: CompletedSubmission, teamColor: string, teamName: string): string {
   const isVideo = sub.mediaType === "video";
-  const mediaHtml = isVideo
-    ? `<div style="width:140px;height:100px;background:#111;display:flex;align-items:center;justify-content:center;border-radius:4px;margin-bottom:4px;font-size:24px;">📹</div>`
-    : sub.photoData
-      ? `<div style="position:relative;width:140px;"><img src="${sub.photoData}" style="width:140px;height:auto;border-radius:4px;display:block;" /><div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.75);color:gold;font-weight:bold;font-size:13px;padding:2px 6px;border-radius:4px;">+${sub.points || 0}</div></div>`
-      : "";
+  const mediaHtml = isVideo && sub.photoData
+    ? `<div style="position:relative;width:140px;"><video src="${sub.photoData}" style="width:140px;height:auto;border-radius:4px;display:block;" muted autoplay loop playsinline></video><div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.75);color:gold;font-weight:bold;font-size:13px;padding:2px 6px;border-radius:4px;">+${sub.points || 0}</div></div>`
+    : isVideo
+      ? `<div style="width:140px;height:100px;background:#111;display:flex;align-items:center;justify-content:center;border-radius:4px;margin-bottom:4px;font-size:24px;">📹</div>`
+      : sub.photoData
+        ? `<div style="position:relative;width:140px;"><img src="${sub.photoData}" style="width:140px;height:auto;border-radius:4px;display:block;" /><div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.75);color:gold;font-weight:bold;font-size:13px;padding:2px 6px;border-radius:4px;">+${sub.points || 0}</div></div>`
+        : "";
   return `<div style="text-align:center;min-width:140px;">
     ${mediaHtml}
     <div style="font-size:11px;margin-top:2px;"><b style="color:${teamColor}">${teamName}</b></div>
     <div style="font-size:11px;color:#ccc;">${sub.description || ""}</div>
-    ${!sub.photoData || isVideo ? `<div style="font-size:12px;color:gold;font-weight:bold;">+${sub.points || 0} pts</div>` : ""}
+    ${!sub.photoData ? `<div style="font-size:12px;color:gold;font-weight:bold;">+${sub.points || 0} pts</div>` : ""}
   </div>`;
 }
 
