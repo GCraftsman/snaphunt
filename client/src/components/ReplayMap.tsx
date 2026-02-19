@@ -77,16 +77,32 @@ function getRunningScores(submissions: ReplaySubmission[], teams: ReplayTeam[], 
   return scores;
 }
 
-const SPEED_OPTIONS = [1, 2, 5, 10];
+function computeSpeedOptions(gameDurationSec: number): { speeds: number[]; defaultIdx: number } {
+  const targetReplaySec = 180;
+  const idealSpeed = gameDurationSec / targetReplaySec;
+  const defaultSpeed = Math.max(2, Math.round(idealSpeed / 2) * 2);
+  const half = Math.max(1, Math.round(defaultSpeed / 4) * 2 || Math.round(defaultSpeed / 2));
+  const double = defaultSpeed * 2;
+  const quad = defaultSpeed * 4;
+  const unique = Array.from(new Set([half, defaultSpeed, double, quad])).sort((a, b) => a - b);
+  const defaultIdx = unique.indexOf(defaultSpeed);
+  return { speeds: unique, defaultIdx: defaultIdx >= 0 ? defaultIdx : 0 };
+}
 
 export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; onComplete?: () => void; teamFilter?: number }) {
   const [data, setData] = useState<ReplayData | null>(null);
   const [loading, setLoading] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [speedIdx, setSpeedIdx] = useState(0);
+  const [speedIdx, setSpeedIdx] = useState<number | null>(null);
   const [runningScores, setRunningScores] = useState<Map<number, number>>(new Map());
-  const speed = SPEED_OPTIONS[speedIdx];
+
+  const gameDurationSec = data?.hunt.gameStartTime && data?.hunt.gameEndTime
+    ? (new Date(data.hunt.gameEndTime).getTime() - new Date(data.hunt.gameStartTime).getTime()) / 1000
+    : 300;
+  const { speeds: speedOptions, defaultIdx } = computeSpeedOptions(gameDurationSec);
+  const activeSpeedIdx = speedIdx ?? defaultIdx;
+  const speed = speedOptions[activeSpeedIdx];
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
   const hasCalledComplete = useRef(false);
@@ -266,12 +282,12 @@ export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; 
     if (!playing || !data || !data.hunt.gameStartTime || !data.hunt.gameEndTime) return;
 
     lastTickRef.current = performance.now();
-    const replayDuration = 120000;
+    const replayDurationMs = gameDurationSec * 1000;
 
     const tick = (now: number) => {
       const delta = now - lastTickRef.current;
       lastTickRef.current = now;
-      const progressDelta = (delta * speed) / replayDuration;
+      const progressDelta = (delta * speed) / replayDurationMs;
 
       setProgress(prev => {
         const next = prev + progressDelta;
@@ -293,7 +309,7 @@ export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; 
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [playing, speed, data]);
+  }, [playing, speed, data, gameDurationSec]);
 
   const formatReplayTime = (prog: number): string => {
     if (!data || !data.hunt.gameStartTime || !data.hunt.gameEndTime) return "0:00";
@@ -382,7 +398,7 @@ export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; 
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => { setProgress(0); setPlaying(false); hasCalledComplete.current = false; if (hasMap) clearMapObjects(); }}
+          onClick={() => { setProgress(0); setPlaying(false); setSpeedIdx(null); hasCalledComplete.current = false; if (hasMap) clearMapObjects(); }}
           data-testid="button-replay-reset"
         >
           <RotateCcw className="w-4 h-4" />
@@ -398,7 +414,7 @@ export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; 
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => setSpeedIdx((speedIdx + 1) % SPEED_OPTIONS.length)}
+          onClick={() => setSpeedIdx((activeSpeedIdx + 1) % speedOptions.length)}
           className="font-mono text-xs min-w-[48px]"
           data-testid="button-replay-speed"
         >
