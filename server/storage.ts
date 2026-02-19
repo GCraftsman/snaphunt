@@ -31,6 +31,7 @@ export interface IStorage {
   updateTeamScore(id: number, points: number): Promise<Team>;
 
   createPlayer(data: InsertPlayer): Promise<Player>;
+  getPlayer(id: string): Promise<Player | undefined>;
   getPlayersByHunt(huntId: string): Promise<Player[]>;
   getPlayerByToken(token: string): Promise<Player | undefined>;
   updatePlayerTeam(id: string, teamId: number | null): Promise<Player>;
@@ -124,6 +125,11 @@ export class DatabaseStorage implements IStorage {
 
   async createPlayer(data: InsertPlayer): Promise<Player> {
     const [player] = await db.insert(players).values(data).returning();
+    return player;
+  }
+
+  async getPlayer(id: string): Promise<Player | undefined> {
+    const [player] = await db.select().from(players).where(eq(players.id, id));
     return player;
   }
 

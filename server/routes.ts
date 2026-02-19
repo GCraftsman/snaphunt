@@ -109,6 +109,8 @@ export async function registerRoutes(
           if (latitude == null || longitude == null) return;
           const hunt = await storage.getHunt(huntId);
           if (!hunt || !hunt.trackLocations || hunt.status !== "active") return;
+          const currentPlayer = await storage.getPlayer(wsPlayerId);
+          if (currentPlayer?.teamId) wsPlayerTeamId = currentPlayer.teamId;
           await storage.createLocationPing({
             huntId,
             playerId: wsPlayerId,

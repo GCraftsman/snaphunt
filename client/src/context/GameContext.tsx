@@ -477,6 +477,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         const data = await res.json();
         throw new Error(data.error);
       }
+      setStatus("finished");
+      setTimeRemaining(0);
       return true;
     } catch (err: any) {
       toast({ title: "Error", description: err.message, variant: "destructive" });
