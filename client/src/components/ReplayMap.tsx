@@ -97,7 +97,8 @@ export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; 
   const leafletMapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Map<string, L.CircleMarker>>(new Map());
   const trailsRef = useRef<Map<string, L.Polyline>>(new Map());
-  const submissionMarkersRef = useRef<L.Marker[]>([]);
+  const submissionMarkersRef = useRef<Map<string, L.Marker>>(new Map());
+  const autoPopupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const lastTickRef = useRef<number>(0);
 
@@ -138,7 +139,8 @@ export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; 
     trailsRef.current.forEach(t => t.remove());
     trailsRef.current.clear();
     submissionMarkersRef.current.forEach(m => m.remove());
-    submissionMarkersRef.current = [];
+    submissionMarkersRef.current.clear();
+    if (autoPopupTimerRef.current) clearTimeout(autoPopupTimerRef.current);
   }, []);
 
   const renderFrame = useCallback((currentProgress: number) => {
@@ -155,7 +157,10 @@ export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; 
     if (!leafletMapRef.current || !hasMap) return;
     const map = leafletMapRef.current;
 
-    clearMapObjects();
+    markersRef.current.forEach(m => m.remove());
+    markersRef.current.clear();
+    trailsRef.current.forEach(t => t.remove());
+    trailsRef.current.clear();
 
     const playerTrails = new Map<string, L.LatLngTuple[]>();
     const playerLatest = new Map<string, ReplayPing>();
@@ -197,35 +202,61 @@ export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; 
       markersRef.current.set(playerId, marker);
     });
 
+    const activeSubKeys = new Set<string>();
+    let newestNewSub: { key: string; marker: L.Marker } | null = null;
+
     for (const sub of data.submissions) {
       const subTime = new Date(sub.createdAt).getTime();
       if (subTime > currentTime) continue;
       if (sub.latitude == null || sub.longitude == null) continue;
 
-      const teamColor = getTeamColor(sub.teamId, data.teams);
-      const submissionIcon = L.divIcon({
-        className: "submission-marker",
-        html: `<div style="width:24px;height:24px;background:${teamColor};border:2px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;">⭐</div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      });
+      const subKey = `${sub.itemId}-${sub.teamId}`;
+      activeSubKeys.add(subKey);
 
-      const marker = L.marker([sub.latitude, sub.longitude], { icon: submissionIcon }).addTo(map);
-      const teamName = data.teams.find(t => t.id === sub.teamId)?.name || "Team";
-      const playerName = getPlayerName(sub.playerId, data.players);
-      const isVideo = sub.mediaType === "video";
-      const mediaHtml = isVideo
-        ? `<div style="font-size:10px;color:#a78bfa;margin-top:4px;">📹 Video submission</div>`
-        : sub.photoData
-          ? `<img src="${sub.photoData}" style="width:150px;height:auto;border-radius:4px;margin-top:4px;" />`
-          : "";
-      marker.bindPopup(
-        `<div style="text-align:center;"><b style="color:${teamColor}">${teamName}</b><br/><span style="font-size:11px;">${playerName}</span><br/><span style="font-size:12px;">${sub.description}</span><br/><span style="font-size:11px;color:gold;">+${sub.points} pts</span>${mediaHtml}</div>`,
-        { maxWidth: 200 }
-      );
-      submissionMarkersRef.current.push(marker);
+      if (!submissionMarkersRef.current.has(subKey)) {
+        const teamColor = getTeamColor(sub.teamId, data.teams);
+        const submissionIcon = L.divIcon({
+          className: "submission-marker",
+          html: `<div style="width:22px;height:16px;background:${teamColor};border:2px solid white;border-radius:3px;box-shadow:0 2px 6px rgba(0,0,0,0.5);"></div>`,
+          iconSize: [22, 16],
+          iconAnchor: [11, 8],
+        });
+
+        const marker = L.marker([sub.latitude, sub.longitude], { icon: submissionIcon }).addTo(map);
+        const teamName = data.teams.find(t => t.id === sub.teamId)?.name || "Team";
+        const isVideo = sub.mediaType === "video";
+        const mediaHtml = isVideo
+          ? `<div style="width:140px;height:100px;background:#111;display:flex;align-items:center;justify-content:center;border-radius:4px;margin-bottom:4px;font-size:24px;">📹</div>`
+          : sub.photoData
+            ? `<div style="position:relative;width:140px;"><img src="${sub.photoData}" style="width:140px;height:auto;border-radius:4px;display:block;" /><div style="position:absolute;bottom:4px;right:4px;background:rgba(0,0,0,0.75);color:gold;font-weight:bold;font-size:13px;padding:2px 6px;border-radius:4px;">+${sub.points}</div></div>`
+            : "";
+        marker.bindPopup(
+          `<div style="text-align:center;min-width:140px;">${mediaHtml}<div style="font-size:11px;margin-top:2px;"><b style="color:${teamColor}">${teamName}</b></div><div style="font-size:11px;color:#ccc;">${sub.description}</div>${!sub.photoData || isVideo ? `<div style="font-size:12px;color:gold;font-weight:bold;">+${sub.points} pts</div>` : ""}</div>`,
+          { maxWidth: 200 }
+        );
+        submissionMarkersRef.current.set(subKey, marker);
+        newestNewSub = { key: subKey, marker };
+      }
     }
-  }, [data, clearMapObjects, hasMap]);
+
+    submissionMarkersRef.current.forEach((marker, key) => {
+      if (!activeSubKeys.has(key)) {
+        marker.remove();
+        submissionMarkersRef.current.delete(key);
+      }
+    });
+
+    if (newestNewSub) {
+      if (autoPopupTimerRef.current) clearTimeout(autoPopupTimerRef.current);
+      map.closePopup();
+      newestNewSub.marker.openPopup();
+      const timerKey = newestNewSub.key;
+      autoPopupTimerRef.current = setTimeout(() => {
+        const m = submissionMarkersRef.current.get(timerKey);
+        if (m) m.closePopup();
+      }, 3000);
+    }
+  }, [data, hasMap]);
 
   useEffect(() => {
     renderFrame(progress);

@@ -49,7 +49,10 @@ async function getFullHuntState(huntId: string) {
     teams: teamsData,
     players: playersData.map(p => ({ id: p.id, name: p.name, teamId: p.teamId, isProctor: p.isProctor })),
     items,
-    submissions: subs.filter(s => s.verified).map(s => ({ itemId: s.itemId, teamId: s.teamId, photoData: s.photoData, mediaType: s.mediaType || "photo" })),
+    submissions: subs.filter(s => s.verified).map(s => {
+      const item = items.find(i => i.id === s.itemId);
+      return { itemId: s.itemId, teamId: s.teamId, photoData: s.photoData, mediaType: s.mediaType || "photo", latitude: s.latitude, longitude: s.longitude, description: item?.description || "", points: item?.points || 0 };
+    }),
     pendingSubmissions: subs.filter(s => s.status === "pending").map(s => ({
       id: s.id, itemId: s.itemId, teamId: s.teamId, playerId: s.playerId, photoData: s.photoData, mediaType: s.mediaType || "photo", createdAt: s.createdAt,
     })),
@@ -443,7 +446,7 @@ export async function registerRoutes(
 
   app.post("/api/hunts/:id/submit", async (req: Request, res: Response) => {
     try {
-      const { itemId, teamId, playerId, photoData, mediaType: submissionMediaType } = req.body;
+      const { itemId, teamId, playerId, photoData, mediaType: submissionMediaType, latitude, longitude } = req.body;
       const huntId = getParam(req.params, "id");
 
       const hunt = await storage.getHunt(huntId);
@@ -473,6 +476,8 @@ export async function registerRoutes(
           verified: false,
           aiResponse: "",
           status: "pending",
+          latitude: latitude || null,
+          longitude: longitude || null,
         });
 
         broadcastToHunt(huntId, {
@@ -556,6 +561,8 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
         verified,
         aiResponse,
         status: verified ? "approved" : "rejected",
+        latitude: latitude || null,
+        longitude: longitude || null,
       });
 
       if (verified) {
@@ -569,6 +576,9 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
             newScore: team.score,
             photoData,
             mediaType: effectiveMediaType,
+            latitude: submission.latitude,
+            longitude: submission.longitude,
+            description: item.description,
           },
         });
       }
@@ -681,6 +691,9 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
             newScore: team.score,
             photoData: submission.photoData,
             mediaType: submission.mediaType || "photo",
+            latitude: submission.latitude,
+            longitude: submission.longitude,
+            description: item.description,
           },
         });
         broadcastToHunt(huntId, {

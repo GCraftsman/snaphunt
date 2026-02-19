@@ -34,6 +34,10 @@ export interface CompletedSubmission {
   teamId: number;
   photoData: string;
   mediaType?: "photo" | "video";
+  latitude?: number | null;
+  longitude?: number | null;
+  description?: string;
+  points?: number;
 }
 
 export interface PendingSubmission {
@@ -232,6 +236,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             teamId: msg.data.teamId,
             photoData: msg.data.photoData,
             mediaType: msg.data.mediaType || "photo",
+            latitude: msg.data.latitude,
+            longitude: msg.data.longitude,
+            description: msg.data.description,
+            points: msg.data.points,
           }]);
           setPendingSubmissions(prev => prev.filter(s => !(s.itemId === msg.data.itemId && s.teamId === msg.data.teamId)));
           setTeams(prev => prev.map(t => t.id === msg.data.teamId ? { ...t, score: msg.data.newScore } : t));
@@ -476,11 +484,23 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const getCurrentLocation = (): Promise<{ latitude: number; longitude: number } | null> => {
+    if (!trackLocations || !("geolocation" in navigator)) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 5000 }
+      );
+    });
+  };
+
   const submitPhoto = async (itemId: number, photoData: string): Promise<{ verified: boolean; aiResponse: string; points: number }> => {
     if (!huntId || !currentUser?.teamId) {
       return { verified: false, aiResponse: "Not on a team", points: 0 };
     }
     try {
+      const loc = await getCurrentLocation();
       const res = await fetch(`/api/hunts/${huntId}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -489,6 +509,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           teamId: currentUser.teamId,
           playerId: currentUser.id,
           photoData,
+          latitude: loc?.latitude,
+          longitude: loc?.longitude,
         }),
       });
       const data = await res.json();
@@ -505,10 +527,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     setUploadingItems(prev => new Set(prev).add(itemId));
 
+    const locPromise = getCurrentLocation();
     const reader = new FileReader();
     reader.onloadend = async () => {
       try {
         const base64 = reader.result as string;
+        const loc = await locPromise;
         const res = await fetch(`/api/hunts/${huntId}/submit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -518,6 +542,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             playerId: currentUser.id,
             photoData: base64,
             mediaType: "video",
+            latitude: loc?.latitude,
+            longitude: loc?.longitude,
           }),
         });
         if (!res.ok) {

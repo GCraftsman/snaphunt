@@ -66,7 +66,13 @@ export default function Lobby() {
       return (
         <div className="min-h-screen bg-background p-4">
           <div className="w-full max-w-2xl mx-auto space-y-6">
-            <h1 className="text-4xl md:text-5xl font-black text-primary text-center pt-6" data-testid="text-game-over">GAME OVER</h1>
+            <h1 className="text-4xl md:text-5xl font-black text-primary text-center pt-6" data-testid="text-game-over">Hunt Complete</h1>
+
+            <div className="flex flex-col items-center justify-center py-6 text-muted-foreground space-y-3 bg-card/50 rounded-xl border border-white/10">
+              <MapPin className="w-10 h-10 opacity-30" />
+              <p className="text-xl font-bold text-center text-white">Return to base to see final results!</p>
+              <p className="text-sm text-center px-4">Your proctor will reveal the final standings for all teams.</p>
+            </div>
 
             {huntId && (
               <div className="space-y-4">
@@ -74,12 +80,6 @@ export default function Lobby() {
                 <ReplayMap huntId={huntId} onComplete={handleReplayComplete} teamFilter={replayTeamFilter} />
               </div>
             )}
-
-            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground space-y-4 bg-card/50 rounded-xl border border-white/10">
-              <MapPin className="w-12 h-12 opacity-30" />
-              <p className="text-xl font-bold text-center text-white">Return to base to see final results!</p>
-              <p className="text-sm text-center px-4">Your proctor will reveal the final standings for all teams.</p>
-            </div>
 
             <div className="text-center pb-8">
               <Button onClick={() => setLocation("/")} variant="outline" data-testid="button-back-home">Back to Home</Button>
@@ -93,7 +93,7 @@ export default function Lobby() {
       <div className="min-h-screen bg-background p-4">
         {showConfetti && <Confetti width={width} height={height} numberOfPieces={300} recycle={false} />}
         <div className="w-full max-w-2xl mx-auto space-y-6">
-          <h1 className="text-4xl md:text-5xl font-black text-primary text-center pt-6" data-testid="text-game-over">GAME OVER</h1>
+          <h1 className="text-4xl md:text-5xl font-black text-primary text-center pt-6" data-testid="text-game-over">Hunt Complete</h1>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-2 mb-4">
