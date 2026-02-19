@@ -310,6 +310,8 @@ export default function ProctorDashboard() {
   const [creating, setCreating] = useState(false);
   const [cloningHunt, setCloningHunt] = useState(false);
   const [trackLocations, setTrackLocations] = useState(false);
+  const [showQrPopover, setShowQrPopover] = useState(false);
+  const [proctorView, setProctorView] = useState<"game" | "replay">("game");
 
   useEffect(() => {
     const names = Array.from({ length: teamCount }, (_, i) => teamNames[i] || `Team ${i + 1}`);
@@ -385,65 +387,113 @@ export default function ProctorDashboard() {
 
   if (huntId && status !== "setup") {
     const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
+    const isGamePhase = status === "active" || status === "finished";
+    const showMap = gameTrackLocations && (status === "active" || status === "finished");
 
     return (
-      <div className="min-h-screen bg-background p-6 space-y-6">
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 border-b border-white/10 pb-4">
-          <div>
-            <h1 className="text-3xl font-bold text-primary" data-testid="text-proctor-title">Proctor Command Center</h1>
-            <p className="text-muted-foreground">
-              {status === "lobby" && "Waiting for players to join..."}
-              {status === "countdown" && "Countdown in progress!"}
-              {status === "active" && "Game Active"}
-              {status === "finished" && "Game Over!"}
-            </p>
+      <div className="min-h-screen bg-background p-4 md:p-6 space-y-4">
+        <header className="flex items-center gap-3 border-b border-white/10 pb-3">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-xl md:text-2xl font-bold text-primary truncate" data-testid="text-proctor-title">Command Center</h1>
           </div>
+
           {status === "countdown" && (
-            <div className="px-6 py-3 bg-yellow-500/20 rounded-xl border border-yellow-500/50 text-center">
-              <p className="text-xs text-yellow-400 uppercase tracking-wider">Starting In</p>
-              <p className="text-4xl font-mono font-black text-yellow-400" data-testid="text-countdown-value">{countdownValue}</p>
+            <div className="px-4 py-2 bg-yellow-500/20 rounded-lg border border-yellow-500/50 text-center">
+              <p className="text-[10px] text-yellow-400 uppercase tracking-wider">Starting</p>
+              <p className="text-2xl font-mono font-black text-yellow-400" data-testid="text-countdown-value">{countdownValue}</p>
             </div>
           )}
           {status === "active" && (
-            <div className={`px-6 py-3 rounded-xl border text-center ${timeRemaining < 300 ? "bg-destructive/20 border-destructive/50" : "bg-primary/20 border-primary/50"}`}>
-              <p className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1 justify-center"><Timer className="w-3 h-3" /> Time Left</p>
-              <p className={`text-3xl font-mono font-black ${timeRemaining < 300 ? "text-destructive animate-pulse" : "text-primary"}`} data-testid="text-proctor-timer">{formatTime(timeRemaining)}</p>
+            <div className={`px-4 py-2 rounded-lg border text-center ${timeRemaining < 300 ? "bg-destructive/20 border-destructive/50" : "bg-primary/20 border-primary/50"}`}>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1 justify-center"><Timer className="w-3 h-3" /> Time</p>
+              <p className={`text-xl font-mono font-black ${timeRemaining < 300 ? "text-destructive animate-pulse" : "text-primary"}`} data-testid="text-proctor-timer">{formatTime(timeRemaining)}</p>
             </div>
           )}
-          <div className="flex gap-4 flex-wrap">
+
+          {(status !== "lobby") && (
+            <div className="flex items-center gap-1 bg-card/50 rounded-lg border border-white/10 p-1">
+              <Button
+                variant={proctorView === "game" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setProctorView("game")}
+                className="text-xs h-8"
+                data-testid="button-view-game"
+              >
+                <Trophy className="w-3.5 h-3.5 mr-1" /> Game
+              </Button>
+              <Button
+                variant={proctorView === "replay" ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setProctorView("replay")}
+                className="text-xs h-8"
+                data-testid="button-view-replay"
+              >
+                <History className="w-3.5 h-3.5 mr-1" /> Replay
+              </Button>
+            </div>
+          )}
+
+          {status !== "lobby" && (
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowQrPopover(!showQrPopover)}
+                className="relative"
+                data-testid="button-show-qr"
+              >
+                <QrIcon className="w-5 h-5 text-secondary" />
+              </Button>
+              {showQrPopover && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowQrPopover(false)} />
+                  <div className="absolute right-0 top-full mt-2 z-50 bg-card border border-white/10 rounded-xl shadow-xl p-4 space-y-3">
+                    <div className="bg-white p-3 rounded-lg" data-testid="qr-code">
+                      <QRCodeCanvas value={joinUrl} size={160} />
+                    </div>
+                    <p className="text-2xl font-mono font-black text-primary tracking-[0.2em] text-center" data-testid="text-hunt-code">{huntCode}</p>
+                    <p className="text-xs text-muted-foreground text-center">Share this code</p>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-2">
             {status === "lobby" && (
               <>
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={lockTeams}
                   disabled={isLocked}
-                  className={`border-destructive/50 ${isLocked ? "opacity-50 cursor-not-allowed" : "hover:bg-destructive/20"} text-destructive-foreground`}
+                  className={`border-destructive/50 ${isLocked ? "opacity-50" : "hover:bg-destructive/20"} text-destructive-foreground`}
                   data-testid="button-lock-teams"
                 >
-                  <Lock className="mr-2 w-4 h-4" /> {isLocked ? "Teams Locked" : "Lock Teams"}
+                  <Lock className="mr-1 w-3.5 h-3.5" /> {isLocked ? "Locked" : "Lock"}
                 </Button>
                 <Button
-                  size="lg"
+                  size="sm"
                   onClick={startCountdown}
-                  className="bg-green-500 hover:bg-green-600 text-black font-bold shadow-[0_0_20px_-5px_rgba(34,197,94,0.6)]"
+                  className="bg-green-500 hover:bg-green-600 text-black font-bold"
                   data-testid="button-start-countdown"
                 >
-                  <Play className="mr-2 w-5 h-5" /> Start Hunt Countdown
+                  <Play className="mr-1 w-4 h-4" /> Start
                 </Button>
               </>
             )}
             {status === "active" && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="lg" data-testid="button-stop-game">
-                    <StopCircle className="mr-2 w-5 h-5" /> Stop Game
+                  <Button variant="destructive" size="sm" data-testid="button-stop-game">
+                    <StopCircle className="mr-1 w-4 h-4" /> Stop
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>End the game early?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This will immediately end the game for all players. Scores will be finalized and the leaderboard will be shown. This action cannot be undone.
+                      This will immediately end the game for all players. Scores will be finalized and the leaderboard will be shown.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -458,201 +508,229 @@ export default function ProctorDashboard() {
             {status === "finished" && (
               <Button
                 variant="outline"
+                size="sm"
                 onClick={() => { resetGame(); setLocation("/proctor"); }}
                 data-testid="button-new-game"
               >
                 New Game
               </Button>
             )}
-            {status !== "lobby" && (
-              <div className="px-4 py-2 bg-secondary/20 rounded-lg border border-secondary/50 text-secondary font-mono font-bold" data-testid="text-status">
-                STATUS: {status.toUpperCase()}
-              </div>
-            )}
           </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="md:col-span-1 bg-card/50 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><QrIcon className="w-5 h-5 text-secondary" /> Join Code</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col items-center justify-center space-y-4">
-              <div className="bg-white p-4 rounded-xl" data-testid="qr-code">
-                <QRCodeCanvas value={joinUrl} size={200} />
-              </div>
-              <div className="text-center">
-                <p className="text-4xl font-mono font-black text-primary tracking-[0.3em]" data-testid="text-hunt-code">{huntCode}</p>
-                <p className="text-xs text-muted-foreground mt-2">Share this code with players</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="md:col-span-2 bg-card/50 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="w-5 h-5 text-secondary" />
-                {status === "lobby" ? "Waiting Room" : "Scoreboard"}
-                <span className="text-muted-foreground font-normal text-sm ml-auto">{players.filter(p => !p.isProctor).length} players</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[300px] w-full pr-4">
-                <div className="grid grid-cols-2 gap-4">
-                  {(status === "active" || status === "finished" ? sortedTeams : teams).map((team) => (
-                    <div key={team.id} className="p-4 rounded-lg border border-white/5 bg-white/5">
-                      <div className="flex justify-between items-center mb-2">
-                        <h3 className="font-bold" style={{ color: team.color }}>{team.name}</h3>
-                        {(status === "active" || status === "finished") && (
-                          <span className="font-mono font-bold text-lg">{team.score} pts</span>
-                        )}
-                      </div>
-                      <ul className="space-y-1">
-                        {players.filter(p => p.teamId === team.id).map(p => (
-                          <li key={p.id} className="text-sm flex items-center gap-2" data-testid={`text-player-${p.id}`}>
-                            <span className="w-2 h-2 rounded-full bg-white/50" />
-                            {p.name}
-                          </li>
-                        ))}
-                        {players.filter(p => p.teamId === team.id).length === 0 && (
-                          <li className="text-sm text-muted-foreground italic">Empty</li>
-                        )}
-                      </ul>
+        {proctorView === "replay" && isGamePhase && huntId ? (
+          status === "finished" ? (
+            <ReplayMap huntId={huntId} />
+          ) : (
+            <div className="flex flex-col items-center justify-center h-64 bg-card/50 rounded-xl border border-white/10 text-muted-foreground space-y-3">
+              <History className="w-10 h-10 opacity-30" />
+              <p className="text-sm font-medium">Replay will be available when the game ends</p>
+            </div>
+          )
+        ) : (
+          <>
+            {status === "lobby" && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card className="md:col-span-1 bg-card/50 backdrop-blur-sm">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-sm"><QrIcon className="w-4 h-4 text-secondary" /> Join Code</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col items-center space-y-3">
+                    <div className="bg-white p-3 rounded-xl" data-testid="qr-code">
+                      <QRCodeCanvas value={joinUrl} size={180} />
                     </div>
-                  ))}
-                  <div className="p-4 rounded-lg border border-white/5 bg-white/5 opacity-50">
-                    <h3 className="font-bold mb-2 text-muted-foreground">Unassigned</h3>
-                    <ul className="space-y-1">
-                      {players.filter(p => !p.teamId && !p.isProctor).map(p => (
-                        <li key={p.id} className="text-sm">{p.name}</li>
-                      ))}
-                    </ul>
+                    <p className="text-3xl font-mono font-black text-primary tracking-[0.3em]" data-testid="text-hunt-code">{huntCode}</p>
+                    <p className="text-xs text-muted-foreground">Share this code with players</p>
+                  </CardContent>
+                </Card>
+                <Card className="md:col-span-2 bg-card/50 backdrop-blur-sm">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="flex items-center gap-2 text-sm">
+                      <Users className="w-4 h-4 text-secondary" /> Waiting Room
+                      <span className="text-muted-foreground font-normal text-xs ml-auto">{players.filter(p => !p.isProctor).length} players</span>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-[280px] w-full pr-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        {teams.map((team) => (
+                          <div key={team.id} className="p-3 rounded-lg border border-white/5 bg-white/5">
+                            <h3 className="font-bold text-sm mb-1" style={{ color: team.color }}>{team.name}</h3>
+                            <ul className="space-y-0.5">
+                              {players.filter(p => p.teamId === team.id).map(p => (
+                                <li key={p.id} className="text-xs flex items-center gap-1.5" data-testid={`text-player-${p.id}`}>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white/50" />
+                                  {p.name}
+                                </li>
+                              ))}
+                              {players.filter(p => p.teamId === team.id).length === 0 && (
+                                <li className="text-xs text-muted-foreground italic">Empty</li>
+                              )}
+                            </ul>
+                          </div>
+                        ))}
+                        <div className="p-3 rounded-lg border border-white/5 bg-white/5 opacity-50">
+                          <h3 className="font-bold text-sm mb-1 text-muted-foreground">Unassigned</h3>
+                          <ul className="space-y-0.5">
+                            {players.filter(p => !p.teamId && !p.isProctor).map(p => (
+                              <li key={p.id} className="text-xs">{p.name}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {isGamePhase && (
+              <>
+                <div className={`grid gap-4 ${showMap ? "grid-cols-1 lg:grid-cols-10" : "grid-cols-1"}`}>
+                  {showMap && (
+                    <div className="lg:col-span-7 bg-card/50 backdrop-blur-sm rounded-xl border border-white/10 overflow-hidden">
+                      {status === "active" ? (
+                        <LiveMap />
+                      ) : (
+                        <div className="w-full h-[400px] flex items-center justify-center text-muted-foreground">
+                          <div className="text-center space-y-2">
+                            <Map className="w-8 h-8 mx-auto opacity-40" />
+                            <p className="text-sm">Switch to Replay to watch the game</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className={showMap ? "lg:col-span-3" : ""}>
+                    <Card className="bg-card/50 backdrop-blur-sm h-full">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="flex items-center gap-2 text-sm">
+                          <Trophy className="w-4 h-4 text-yellow-400" /> Scoreboard
+                          <span className="text-muted-foreground font-normal text-xs ml-auto">{players.filter(p => !p.isProctor).length} players</span>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <ScrollArea className={showMap ? "h-[340px]" : "h-[260px]"}>
+                          <div className="space-y-2">
+                            {sortedTeams.map((team, idx) => (
+                              <div key={team.id} className="p-3 rounded-lg border border-white/5 bg-white/5">
+                                <div className="flex items-center gap-2 mb-1.5">
+                                  <span className="text-xs font-mono text-muted-foreground/40">#{idx + 1}</span>
+                                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: team.color }} />
+                                  <span className="font-bold text-sm flex-1 truncate" style={{ color: team.color }}>{team.name}</span>
+                                  <span className="font-mono font-bold text-sm">{team.score}</span>
+                                </div>
+                                <ul className="space-y-0.5 ml-7">
+                                  {players.filter(p => p.teamId === team.id).map(p => (
+                                    <li key={p.id} className="text-xs text-muted-foreground flex items-center gap-1" data-testid={`text-player-${p.id}`}>
+                                      <span className="w-1 h-1 rounded-full bg-white/30" />
+                                      {p.name}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      </CardContent>
+                    </Card>
                   </div>
                 </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-        </div>
 
-        {(status === "active" || status === "finished") && (
-          <Card className="bg-card/50 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle>Mission Progress</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {items.map(item => {
-                  const completedBy = completedSubmissions.filter(s => s.itemId === item.id).map(s => s.teamId);
-                  const pendingCount = pendingSubmissions.filter(s => s.itemId === item.id).length;
-                  return (
-                    <div key={item.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-primary font-bold w-12 text-right">{item.points}</span>
-                        <span>{item.description}</span>
-                        {(item as any).mediaType === "video" && (
-                          <Badge variant="outline" className="border-purple-400/30 text-purple-400 text-[10px]">
-                            <Video className="w-2.5 h-2.5 mr-0.5" /> Video
-                          </Badge>
-                        )}
-                        {item.verificationMode === "proctor" && (
-                          <Badge variant="outline" className="border-yellow-400/30 text-yellow-400 text-[10px]">
-                            <Eye className="w-2.5 h-2.5 mr-0.5" /> Proctor
-                          </Badge>
-                        )}
-                        {pendingCount > 0 && (
-                          <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-400/30 text-[10px]">
-                            {pendingCount} pending
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex gap-1">
-                        {teams.map(t => (
-                          <div
-                            key={t.id}
-                            className={`w-4 h-4 rounded-full border ${completedBy.includes(t.id) ? "" : "opacity-20 border-white/20"}`}
-                            style={{ backgroundColor: completedBy.includes(t.id) ? t.color : "transparent", borderColor: t.color }}
-                            title={t.name}
-                          />
-                        ))}
-                      </div>
+                <Card className="bg-card/50 backdrop-blur-sm">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Mission Progress</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1.5">
+                      {items.map(item => {
+                        const completedBy = completedSubmissions.filter(s => s.itemId === item.id).map(s => s.teamId);
+                        const pendingCount = pendingSubmissions.filter(s => s.itemId === item.id).length;
+                        return (
+                          <div key={item.id} className="flex items-center justify-between p-2 bg-white/5 rounded-lg">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <span className="font-mono text-primary font-bold w-10 text-right text-sm">{item.points}</span>
+                              <span className="text-sm truncate">{item.description}</span>
+                              {(item as any).mediaType === "video" && (
+                                <Badge variant="outline" className="border-purple-400/30 text-purple-400 text-[10px] shrink-0">
+                                  <Video className="w-2.5 h-2.5 mr-0.5" /> Video
+                                </Badge>
+                              )}
+                              {item.verificationMode === "proctor" && (
+                                <Badge variant="outline" className="border-yellow-400/30 text-yellow-400 text-[10px] shrink-0">
+                                  <Eye className="w-2.5 h-2.5 mr-0.5" /> Proctor
+                                </Badge>
+                              )}
+                              {pendingCount > 0 && (
+                                <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-400/30 text-[10px] shrink-0">
+                                  {pendingCount} pending
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex gap-1 shrink-0">
+                              {teams.map(t => (
+                                <div
+                                  key={t.id}
+                                  className={`w-3.5 h-3.5 rounded-full border ${completedBy.includes(t.id) ? "" : "opacity-20 border-white/20"}`}
+                                  style={{ backgroundColor: completedBy.includes(t.id) ? t.color : "transparent", borderColor: t.color }}
+                                  title={t.name}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                  </CardContent>
+                </Card>
 
-        {(status === "active" || status === "finished") && pendingSubmissions.length > 0 && (
-          <Card className="bg-card/50 backdrop-blur-sm border-yellow-500/30">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Eye className="w-5 h-5 text-yellow-400" />
-                Pending Review
-                <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-400/30 ml-2">{pendingSubmissions.length}</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {pendingSubmissions.map(sub => {
-                  const item = items.find(i => i.id === sub.itemId);
-                  const team = teams.find(t => t.id === sub.teamId);
-                  const player = players.find(p => p.id === sub.playerId);
-                  return (
-                    <div
-                      key={sub.id}
-                      className="flex items-center gap-4 p-3 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
-                      onClick={() => { setReviewingSubmission(sub); setRejectFeedback(""); }}
-                      data-testid={`pending-submission-${sub.id}`}
-                    >
-                      {sub.mediaType === "video" ? (
-                        <div className="w-16 h-16 rounded-lg bg-purple-500/20 flex items-center justify-center shrink-0">
-                          <Video className="w-6 h-6 text-purple-400" />
-                        </div>
-                      ) : (
-                        <img src={sub.photoData} alt="Submission" className="w-16 h-16 rounded-lg object-cover" />
-                      )}
-                      <div className="flex-1">
-                        <p className="font-medium">{item?.description}</p>
-                        <p className="text-sm text-muted-foreground">
-                          by {player?.name || "Unknown"} &middot; <span style={{ color: team?.color }}>{team?.name}</span>
-                        </p>
+                {pendingSubmissions.length > 0 && (
+                  <Card className="bg-card/50 backdrop-blur-sm border-yellow-500/30">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="flex items-center gap-2 text-sm">
+                        <Eye className="w-4 h-4 text-yellow-400" />
+                        Pending Review
+                        <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-400/30 ml-2">{pendingSubmissions.length}</Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {pendingSubmissions.map(sub => {
+                          const item = items.find(i => i.id === sub.itemId);
+                          const team = teams.find(t => t.id === sub.teamId);
+                          const player = players.find(p => p.id === sub.playerId);
+                          return (
+                            <div
+                              key={sub.id}
+                              className="flex items-center gap-3 p-2 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
+                              onClick={() => { setReviewingSubmission(sub); setRejectFeedback(""); }}
+                              data-testid={`pending-submission-${sub.id}`}
+                            >
+                              {sub.mediaType === "video" ? (
+                                <div className="w-12 h-12 rounded-lg bg-purple-500/20 flex items-center justify-center shrink-0">
+                                  <Video className="w-5 h-5 text-purple-400" />
+                                </div>
+                              ) : (
+                                <img src={sub.photoData} alt="Submission" className="w-12 h-12 rounded-lg object-cover shrink-0" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm truncate">{item?.description}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {player?.name || "Unknown"} &middot; <span style={{ color: team?.color }}>{team?.name}</span>
+                                </p>
+                              </div>
+                              <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                            </div>
+                          );
+                        })}
                       </div>
-                      <ChevronRight className="text-muted-foreground" />
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {gameTrackLocations && status === "active" && (
-          <Card className="bg-card/50 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Map className="w-5 h-5 text-secondary" /> Live Player Map
-              </CardTitle>
-              <CardDescription>Real-time player positions during the hunt</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <LiveMap />
-            </CardContent>
-          </Card>
-        )}
-
-        {gameTrackLocations && status === "finished" && huntId && (
-          <Card className="bg-card/50 backdrop-blur-sm">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Map className="w-5 h-5 text-secondary" /> Game Replay
-              </CardTitle>
-              <CardDescription>Watch the game unfold on the map with player trails and submissions</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ReplayMap huntId={huntId} />
-            </CardContent>
-          </Card>
+                    </CardContent>
+                  </Card>
+                )}
+              </>
+            )}
+          </>
         )}
 
         {reviewingSubmission && (

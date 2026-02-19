@@ -1,21 +1,16 @@
 import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { useGame, type LocationUpdate, type Team, type Player } from "@/context/GameContext";
+import { useGame, type LocationUpdate, type Team } from "@/context/GameContext";
 
 function getTeamColor(teamId: number | null, teams: Team[]): string {
-  if (!teamId) return "#888888";
+  if (teamId == null) return "#888888";
   const team = teams.find(t => t.id === teamId);
   return team?.color || "#888888";
 }
 
-function getPlayerName(playerId: string, players: Player[]): string {
-  const p = players.find(pl => pl.id === playerId);
-  return p?.name || "Unknown";
-}
-
 export function LiveMap() {
-  const { playerLocations, teams, players } = useGame();
+  const { playerLocations, teams } = useGame();
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMapRef = useRef<L.Map | null>(null);
   const markersRef = useRef<Map<string, L.CircleMarker>>(new Map());
@@ -45,7 +40,6 @@ export function LiveMap() {
 
     playerLocations.forEach((loc: LocationUpdate, playerId: string) => {
       const color = getTeamColor(loc.teamId, teams);
-      const name = getPlayerName(playerId, players);
       const latLng: L.LatLngExpression = [loc.latitude, loc.longitude];
       bounds.push(latLng);
 
@@ -53,16 +47,14 @@ export function LiveMap() {
         const marker = currentMarkers.get(playerId)!;
         marker.setLatLng(latLng);
         marker.setStyle({ color, fillColor: color });
-        marker.setTooltipContent(name);
       } else {
         const marker = L.circleMarker(latLng, {
-          radius: 8,
+          radius: 7,
           color,
           fillColor: color,
-          fillOpacity: 0.8,
+          fillOpacity: 0.9,
           weight: 2,
         }).addTo(map);
-        marker.bindTooltip(name, { permanent: true, direction: "top", offset: [0, -10], className: "player-tooltip" });
         currentMarkers.set(playerId, marker);
       }
     });
@@ -70,25 +62,9 @@ export function LiveMap() {
     if (bounds.length > 0) {
       map.fitBounds(L.latLngBounds(bounds as L.LatLngTuple[]).pad(0.2));
     }
-  }, [playerLocations, teams, players]);
+  }, [playerLocations, teams]);
 
   return (
-    <div className="relative w-full rounded-lg overflow-hidden border border-white/10">
-      <div ref={mapRef} className="w-full h-[500px]" data-testid="live-map" />
-      <style>{`
-        .player-tooltip {
-          background: rgba(0,0,0,0.8) !important;
-          border: 1px solid rgba(255,255,255,0.2) !important;
-          color: white !important;
-          font-size: 12px !important;
-          padding: 2px 6px !important;
-          border-radius: 4px !important;
-          box-shadow: none !important;
-        }
-        .player-tooltip::before {
-          border-top-color: rgba(0,0,0,0.8) !important;
-        }
-      `}</style>
-    </div>
+    <div ref={mapRef} className="w-full h-full min-h-[300px]" data-testid="live-map" />
   );
 }
