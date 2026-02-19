@@ -2,7 +2,6 @@ import { useGame } from "@/context/GameContext";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { useState, useRef, useCallback, useEffect } from "react";
 import Webcam from "react-webcam";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,8 +11,7 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Progress } from "@/components/ui/progress";
-import { Trophy, List, Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot, RotateCcw, AlertTriangle, Video, Loader2, Square } from "lucide-react";
+import { Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot, RotateCcw, AlertTriangle, Video, Loader2, Square } from "lucide-react";
 import { motion } from "framer-motion";
 import Confetti from "react-confetti";
 import { useLocation } from "wouter";
@@ -25,7 +23,7 @@ function useWindowSizeValues() {
 
 export default function Game() {
   const { items, teams, currentUser, timeRemaining, submitPhoto, submitVideo, redoSubmission, completedSubmissions, pendingSubmissions, rejectedSubmissions, uploadingItems, status } = useGame();
-  const [activeTab, setActiveTab] = useState("list");
+  
   const [selectedItem, setSelectedItem] = useState<any | null>(null);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -53,8 +51,6 @@ export default function Game() {
   const chunksRef = useRef<Blob[]>([]);
 
   const myTeam = teams.find(t => t.id === currentUser?.teamId);
-  const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
-  const totalPoints = items.reduce((a, b) => a + b.points, 0);
 
   const isVideoItem = selectedItem?.mediaType === "video";
   const videoLength = selectedItem?.videoLengthSeconds || 20;
@@ -389,118 +385,90 @@ export default function Game() {
         </div>
         <div className="text-right">
           <span className="text-xs text-muted-foreground uppercase tracking-widest">My Team</span>
-          <div className="text-xl font-bold" style={{ color: myTeam?.color }} data-testid="text-team-score">
-            {myTeam?.score || 0} PTS
+          <div className="text-xl font-bold" style={{ color: myTeam?.color }} data-testid="text-team-name">
+            {myTeam?.name || ""}
           </div>
         </div>
       </header>
 
-      <main className="p-4">
-        <Tabs defaultValue="list" value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6">
-            <TabsTrigger value="list" className="text-lg py-3" data-testid="tab-missions">
-              <List className="w-4 h-4 mr-2" /> Missions
-            </TabsTrigger>
-            <TabsTrigger value="scoreboard" className="text-lg py-3" data-testid="tab-standings">
-              <Trophy className="w-4 h-4 mr-2" /> Standings
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="list" className="space-y-3">
-            {items.map(item => {
-              const completed = isItemCompleted(item.id);
-              const pending = isItemPending(item.id);
-              const uploading = isItemUploading(item.id);
-              const rejection = getItemRejection(item.id);
-              return (
-                <Card
-                  key={item.id}
-                  className={`border transition-all cursor-pointer ${
-                    uploading ? "bg-blue-500/10 border-blue-500/30 opacity-80" :
-                    completed ? "bg-green-500/10 border-green-500/30" :
-                    pending ? "bg-yellow-500/10 border-yellow-500/30 opacity-80" :
-                    rejection ? "bg-card border-destructive/30 hover:border-destructive/50 active:scale-[0.98]" :
-                    "bg-card border-white/5 hover:border-primary/50 active:scale-[0.98]"
-                  }`}
-                  onClick={() => {
-                    if (uploading || requestingCamera) return;
-                    if (completed) {
-                      setViewingMode("completed");
-                      setViewingItem(item);
-                    } else if (pending) {
-                      setViewingMode("pending");
-                      setViewingItem(item);
-                    } else {
-                      handleItemSelect(item);
-                    }
-                  }}
-                  data-testid={`card-item-${item.id}`}
-                >
-                  <CardContent className="p-4 flex items-center gap-4">
-                    <div className="flex-1">
-                      <div className="flex justify-between items-start mb-1">
-                        <span className={`font-medium text-lg ${completed ? "line-through text-muted-foreground" : ""}`}>
-                          {item.description}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {item.mediaType === "video" && (
-                            <Badge variant="outline" className="border-purple-400/30 text-purple-400 text-[10px]">
-                              <Video className="w-2.5 h-2.5 mr-0.5" /> Video
-                            </Badge>
-                          )}
-                          {item.verificationMode === "proctor" && (
-                            <Badge variant="outline" className="border-yellow-400/30 text-yellow-400 text-[10px]">
-                              <Eye className="w-2.5 h-2.5 mr-0.5" /> Proctor
-                            </Badge>
-                          )}
-                          <Badge variant={completed ? "secondary" : "outline"} className={completed ? "bg-green-500 text-black" : "border-primary text-primary"}>
-                            {item.points} PTS
-                          </Badge>
-                        </div>
-                      </div>
-                      {uploading && (
-                        <div className="text-xs text-blue-400 flex items-center gap-1 mt-2">
-                          <Loader2 className="w-3 h-3 animate-spin" /> Uploading...
-                        </div>
+      <main className="p-4 space-y-3">
+        {items.map(item => {
+          const completed = isItemCompleted(item.id);
+          const pending = isItemPending(item.id);
+          const uploading = isItemUploading(item.id);
+          const rejection = getItemRejection(item.id);
+          return (
+            <Card
+              key={item.id}
+              className={`border transition-all cursor-pointer ${
+                uploading ? "bg-blue-500/10 border-blue-500/30 opacity-80" :
+                completed ? "bg-green-500/10 border-green-500/30" :
+                pending ? "bg-yellow-500/10 border-yellow-500/30 opacity-80" :
+                rejection ? "bg-card border-destructive/30 hover:border-destructive/50 active:scale-[0.98]" :
+                "bg-card border-white/5 hover:border-primary/50 active:scale-[0.98]"
+              }`}
+              onClick={() => {
+                if (uploading || requestingCamera) return;
+                if (completed) {
+                  setViewingMode("completed");
+                  setViewingItem(item);
+                } else if (pending) {
+                  setViewingMode("pending");
+                  setViewingItem(item);
+                } else {
+                  handleItemSelect(item);
+                }
+              }}
+              data-testid={`card-item-${item.id}`}
+            >
+              <CardContent className="p-4 flex items-center gap-4">
+                <div className="flex-1">
+                  <div className="flex justify-between items-start mb-1">
+                    <span className={`font-medium text-lg ${completed ? "line-through text-muted-foreground" : ""}`}>
+                      {item.description}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {item.mediaType === "video" && (
+                        <Badge variant="outline" className="border-purple-400/30 text-purple-400 text-[10px]">
+                          <Video className="w-2.5 h-2.5 mr-0.5" /> Video
+                        </Badge>
                       )}
-                      {completed && !uploading && (
-                        <div className="text-xs text-green-400 flex items-center gap-1 mt-2">
-                          <Check className="w-3 h-3" /> Completed - tap to view
-                        </div>
+                      {item.verificationMode === "proctor" && (
+                        <Badge variant="outline" className="border-yellow-400/30 text-yellow-400 text-[10px]">
+                          <Eye className="w-2.5 h-2.5 mr-0.5" /> Proctor
+                        </Badge>
                       )}
-                      {pending && !uploading && (
-                        <div className="text-xs text-yellow-400 flex items-center gap-1 mt-2">
-                          <Clock className="w-3 h-3" /> Waiting for review - tap to view
-                        </div>
-                      )}
-                      {rejection && !completed && !pending && !uploading && (
-                        <div className="text-xs text-destructive flex items-center gap-1 mt-2">
-                          <X className="w-3 h-3" /> Rejected: {rejection.proctorFeedback}
-                        </div>
-                      )}
+                      <Badge variant={completed ? "secondary" : "outline"} className={completed ? "bg-green-500 text-black" : "border-primary text-primary"}>
+                        {item.points} PTS
+                      </Badge>
                     </div>
-                    <ChevronRight className="text-muted-foreground" />
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </TabsContent>
-
-          <TabsContent value="scoreboard" className="space-y-4">
-            {sortedTeams.map((team, index) => (
-              <div key={team.id} className="relative" data-testid={`row-team-${team.id}`}>
-                <div className="flex items-center gap-4 p-4 bg-card rounded-xl border border-white/5">
-                  <div className="font-display text-4xl font-bold text-muted-foreground/30 w-8">#{index + 1}</div>
-                  <div className="flex-1">
-                    <h3 className="font-bold text-lg" style={{ color: team.color }}>{team.name}</h3>
-                    <Progress value={totalPoints > 0 ? (team.score / totalPoints) * 100 : 0} className="h-2 mt-2 bg-white/5" />
                   </div>
-                  <div className="text-2xl font-black">{team.score}</div>
+                  {uploading && (
+                    <div className="text-xs text-blue-400 flex items-center gap-1 mt-2">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Uploading...
+                    </div>
+                  )}
+                  {completed && !uploading && (
+                    <div className="text-xs text-green-400 flex items-center gap-1 mt-2">
+                      <Check className="w-3 h-3" /> Completed - tap to view
+                    </div>
+                  )}
+                  {pending && !uploading && (
+                    <div className="text-xs text-yellow-400 flex items-center gap-1 mt-2">
+                      <Clock className="w-3 h-3" /> Waiting for review - tap to view
+                    </div>
+                  )}
+                  {rejection && !completed && !pending && !uploading && (
+                    <div className="text-xs text-destructive flex items-center gap-1 mt-2">
+                      <X className="w-3 h-3" /> Rejected: {rejection.proctorFeedback}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
-          </TabsContent>
-        </Tabs>
+                <ChevronRight className="text-muted-foreground" />
+              </CardContent>
+            </Card>
+          );
+        })}
       </main>
 
       <Dialog open={!!selectedItem} onOpenChange={(open) => { if (!open && !requestingCamera) closeDialog(); }}>

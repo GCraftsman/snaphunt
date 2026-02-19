@@ -2,14 +2,31 @@ import { useGame } from "@/context/GameContext";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
-import { Users, Lock } from "lucide-react";
-import { useEffect } from "react";
+import { Users, Lock, Trophy, PlayCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { ReplayMap } from "@/components/ReplayMap";
+import Confetti from "react-confetti";
+
+function useWindowSize() {
+  const [size, setSize] = useState({ width: window.innerWidth, height: window.innerHeight });
+  useEffect(() => {
+    const handler = () => setSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return size;
+}
 
 export default function Lobby() {
-  const { teams, players, joinTeam, currentUser, status, countdownValue, isLocked } = useGame();
+  const { teams, players, joinTeam, currentUser, status, countdownValue, isLocked, huntId } = useGame();
   const [_, setLocation] = useLocation();
+  const [activeTab, setActiveTab] = useState("replay");
+  const [replayComplete, setReplayComplete] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const { width, height } = useWindowSize();
 
   useEffect(() => {
     if (status === "active") {
@@ -32,21 +49,80 @@ export default function Lobby() {
 
   if (status === "finished") {
     const sortedTeams = [...teams].sort((a, b) => b.score - a.score);
+
+    const handleReplayComplete = () => {
+      setReplayComplete(true);
+      setShowConfetti(true);
+      setActiveTab("results");
+      setTimeout(() => setShowConfetti(false), 5000);
+    };
+
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-background">
-        <h1 className="text-5xl font-black text-primary mb-8" data-testid="text-game-over">GAME OVER</h1>
-        <div className="w-full max-w-md space-y-4">
-          {sortedTeams.map((team, idx) => (
-            <div key={team.id} className="flex items-center gap-4 p-4 bg-card rounded-xl border border-white/5">
-              <div className="font-display text-4xl font-bold text-muted-foreground/30 w-8">#{idx + 1}</div>
-              <div className="flex-1">
-                <h3 className="font-bold text-lg" style={{ color: team.color }}>{team.name}</h3>
-              </div>
-              <div className="text-2xl font-black">{team.score}</div>
-            </div>
-          ))}
+      <div className="min-h-screen bg-background p-4">
+        {showConfetti && <Confetti width={width} height={height} numberOfPieces={300} recycle={false} />}
+        <div className="w-full max-w-2xl mx-auto space-y-6">
+          <h1 className="text-4xl md:text-5xl font-black text-primary text-center pt-6" data-testid="text-game-over">GAME OVER</h1>
+
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="replay" className="text-lg py-3" data-testid="tab-replay">
+                <PlayCircle className="w-4 h-4 mr-2" /> Replay
+              </TabsTrigger>
+              <TabsTrigger value="results" className="text-lg py-3" data-testid="tab-results">
+                <Trophy className="w-4 h-4 mr-2" /> Results
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="replay">
+              {huntId && (
+                <ReplayMap huntId={huntId} onComplete={handleReplayComplete} />
+              )}
+            </TabsContent>
+
+            <TabsContent value="results">
+              {replayComplete ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="space-y-4"
+                >
+                  <h2 className="text-2xl font-bold text-center text-secondary mb-6">Final Standings</h2>
+                  {sortedTeams.map((team, idx) => (
+                    <motion.div
+                      key={team.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.2 }}
+                      className="flex items-center gap-4 p-4 bg-card rounded-xl border border-white/5"
+                      data-testid={`result-team-${team.id}`}
+                    >
+                      <div className="font-display text-4xl font-bold text-muted-foreground/30 w-10">
+                        {idx === 0 ? "🏆" : `#${idx + 1}`}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="font-bold text-lg" style={{ color: team.color }}>{team.name}</h3>
+                      </div>
+                      <div className="text-2xl font-black">{team.score}</div>
+                    </motion.div>
+                  ))}
+                </motion.div>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground space-y-4">
+                  <Trophy className="w-16 h-16 opacity-20" />
+                  <p className="text-lg font-medium">Watch the replay first!</p>
+                  <p className="text-sm">Results will be revealed when the replay finishes.</p>
+                  <Button variant="outline" onClick={() => setActiveTab("replay")} data-testid="button-go-to-replay">
+                    Go to Replay
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+
+          <div className="text-center pb-8">
+            <Button onClick={() => setLocation("/")} variant="outline" data-testid="button-back-home">Back to Home</Button>
+          </div>
         </div>
-        <Button onClick={() => setLocation("/")} className="mt-8" variant="outline" data-testid="button-back-home">Back to Home</Button>
       </div>
     );
   }

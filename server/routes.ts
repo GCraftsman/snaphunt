@@ -706,13 +706,12 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
     }
   });
 
-  app.get("/api/hunts/:id/replay", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/hunts/:id/replay", async (req: Request, res: Response) => {
     try {
       const huntId = getParam(req.params, "id");
-      const userId = (req as any).user?.claims?.sub;
       const hunt = await storage.getHunt(huntId);
       if (!hunt) return res.status(404).json({ error: "Hunt not found" });
-      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+      if (hunt.status !== "finished") return res.status(400).json({ error: "Game is not finished" });
 
       const pings = await storage.getLocationPingsByHunt(huntId);
       const playersData = await storage.getPlayersByHunt(huntId);
@@ -720,15 +719,21 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
       const subs = await storage.getSubmissionsByHunt(huntId);
       const items = await storage.getItemsByHunt(huntId);
 
-      const verifiedSubs = subs.filter(s => s.verified).map(s => ({
-        itemId: s.itemId,
-        teamId: s.teamId,
-        playerId: s.playerId,
-        latitude: s.latitude,
-        longitude: s.longitude,
-        createdAt: s.createdAt,
-        description: items.find(i => i.id === s.itemId)?.description || "",
-      }));
+      const verifiedSubs = subs.filter(s => s.verified).map(s => {
+        const item = items.find(i => i.id === s.itemId);
+        return {
+          itemId: s.itemId,
+          teamId: s.teamId,
+          playerId: s.playerId,
+          latitude: s.latitude,
+          longitude: s.longitude,
+          createdAt: s.createdAt,
+          description: item?.description || "",
+          points: item?.points || 0,
+          photoData: s.photoData,
+          mediaType: s.mediaType || "photo",
+        };
+      });
 
       res.json({
         hunt: {

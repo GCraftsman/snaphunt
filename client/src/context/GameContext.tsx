@@ -220,6 +220,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           break;
         case "game_finished":
           setStatus("finished");
+          setTimeRemaining(0);
           break;
         case "item_completed":
           setCompletedSubmissions(prev => [...prev, {
