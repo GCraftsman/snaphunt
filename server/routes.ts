@@ -150,6 +150,7 @@ export async function registerRoutes(
         countdownSeconds: settings.countdownSeconds || 10,
         teamCount: settings.teamCount || 4,
         trackLocations: settings.trackLocations || false,
+        showStandings: settings.showStandings !== false,
       });
 
       for (let i = 0; i < (settings.teamCount || 4); i++) {
@@ -713,13 +714,27 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
       if (!hunt) return res.status(404).json({ error: "Hunt not found" });
       if (hunt.status !== "finished") return res.status(400).json({ error: "Game is not finished" });
 
+      const teamFilter = req.query.teamId ? Number(req.query.teamId) : null;
+
       const pings = await storage.getLocationPingsByHunt(huntId);
       const playersData = await storage.getPlayersByHunt(huntId);
       const teamsData = await storage.getTeamsByHunt(huntId);
       const subs = await storage.getSubmissionsByHunt(huntId);
       const items = await storage.getItemsByHunt(huntId);
 
-      const verifiedSubs = subs.filter(s => s.verified).map(s => {
+      let filteredPings = pings;
+      let filteredSubs = subs.filter(s => s.verified);
+      let filteredPlayers = playersData.filter(p => !p.isProctor);
+      let filteredTeams = teamsData;
+
+      if (teamFilter != null) {
+        filteredPings = pings.filter(p => p.teamId === teamFilter);
+        filteredSubs = filteredSubs.filter(s => s.teamId === teamFilter);
+        filteredPlayers = filteredPlayers.filter(p => p.teamId === teamFilter);
+        filteredTeams = teamsData.filter(t => t.id === teamFilter);
+      }
+
+      const verifiedSubs = filteredSubs.map(s => {
         const item = items.find(i => i.id === s.itemId);
         return {
           itemId: s.itemId,
@@ -743,12 +758,13 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
           gameEndTime: hunt.gameEndTime,
           durationMinutes: hunt.durationMinutes,
           trackLocations: hunt.trackLocations,
+          showStandings: hunt.showStandings,
         },
-        players: playersData.filter(p => !p.isProctor).map(p => ({
+        players: filteredPlayers.map(p => ({
           id: p.id, name: p.name, teamId: p.teamId,
         })),
-        teams: teamsData.map(t => ({ id: t.id, name: t.name, color: t.color, score: t.score })),
-        locationPings: pings.map(p => ({
+        teams: filteredTeams.map(t => ({ id: t.id, name: t.name, color: t.color, score: t.score })),
+        locationPings: filteredPings.map(p => ({
           playerId: p.playerId,
           teamId: p.teamId,
           latitude: p.latitude,

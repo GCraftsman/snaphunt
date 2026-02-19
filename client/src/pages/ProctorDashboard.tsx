@@ -310,6 +310,7 @@ export default function ProctorDashboard() {
   const [creating, setCreating] = useState(false);
   const [cloningHunt, setCloningHunt] = useState(false);
   const [trackLocations, setTrackLocations] = useState(false);
+  const [showStandingsToPlayers, setShowStandingsToPlayers] = useState(true);
   const [showQrPopover, setShowQrPopover] = useState(false);
   const [proctorView, setProctorView] = useState<"game" | "replay">("game");
 
@@ -331,6 +332,7 @@ export default function ProctorDashboard() {
       setDuration(data.hunt.durationMinutes || 60);
       setCountdown(data.hunt.countdownSeconds || 10);
       setTrackLocations(data.hunt.trackLocations || false);
+      setShowStandingsToPlayers(data.hunt.showStandings !== false);
       setCustomItems(data.items);
       const clonedTeamCount = data.teamNames.length || 4;
       setTeamCount(clonedTeamCount);
@@ -368,6 +370,7 @@ export default function ProctorDashboard() {
       teamCount,
       countdownSeconds: countdown,
       trackLocations,
+      showStandings: showStandingsToPlayers,
     }, teamNames, huntName);
     setCreating(false);
     setShowSetup(false);
@@ -860,6 +863,13 @@ export default function ProctorDashboard() {
                     <p className="text-sm text-muted-foreground">Enable GPS tracking to see player movement on a live map and replay after the game.</p>
                   </div>
                   <Switch checked={trackLocations} onCheckedChange={setTrackLocations} data-testid="switch-track-locations" />
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <div className="space-y-1">
+                    <Label className="text-lg flex items-center gap-2"><Trophy className="w-4 h-4" /> Show Standings to Players</Label>
+                    <p className="text-sm text-muted-foreground">When off, players won't see other teams' scores during or after the game. They'll be told to return to base for final results.</p>
+                  </div>
+                  <Switch checked={showStandingsToPlayers} onCheckedChange={setShowStandingsToPlayers} data-testid="switch-show-standings" />
                 </div>
               </CardContent>
             </Card>

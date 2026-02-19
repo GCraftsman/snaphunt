@@ -80,7 +80,7 @@ function getRunningScores(submissions: ReplaySubmission[], teams: ReplayTeam[], 
 
 const SPEED_OPTIONS = [1, 2, 5, 10];
 
-export function ReplayMap({ huntId, onComplete }: { huntId: string; onComplete?: () => void }) {
+export function ReplayMap({ huntId, onComplete, teamFilter }: { huntId: string; onComplete?: () => void; teamFilter?: number }) {
   const [data, setData] = useState<ReplayData | null>(null);
   const [loading, setLoading] = useState(true);
   const [playing, setPlaying] = useState(false);
@@ -102,11 +102,12 @@ export function ReplayMap({ huntId, onComplete }: { huntId: string; onComplete?:
   const lastTickRef = useRef<number>(0);
 
   useEffect(() => {
-    fetch(`/api/hunts/${huntId}/replay`)
+    const url = teamFilter != null ? `/api/hunts/${huntId}/replay?teamId=${teamFilter}` : `/api/hunts/${huntId}/replay`;
+    fetch(url)
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [huntId]);
+  }, [huntId, teamFilter]);
 
   const hasMap = data && data.hunt.trackLocations && data.locationPings.length > 0;
 

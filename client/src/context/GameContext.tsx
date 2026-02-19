@@ -59,6 +59,7 @@ export interface GameSettings {
   teamCount: number;
   countdownSeconds: number;
   trackLocations?: boolean;
+  showStandings?: boolean;
 }
 
 export interface LocationUpdate {
@@ -88,6 +89,7 @@ interface GameContextType {
   countdownValue: number;
   connected: boolean;
   trackLocations: boolean;
+  showStandings: boolean;
   playerLocations: Map<string, LocationUpdate>;
 
   createHunt: (items: { description: string; points: number; verificationMode?: string; mediaType?: string; videoLengthSeconds?: number }[], settings: GameSettings, teamNames?: string[], huntName?: string) => Promise<string | null>;
@@ -130,6 +132,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [connected, setConnected] = useState(false);
   const [uploadingItems, setUploadingItems] = useState<Set<number>>(new Set());
   const [trackLocations, setTrackLocations] = useState(false);
+  const [showStandings, setShowStandings] = useState(true);
   const [playerLocations, setPlayerLocations] = useState<Map<string, LocationUpdate>>(new Map());
 
   const [gameStartTime, setGameStartTime] = useState<string | null>(null);
@@ -185,6 +188,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             trackLocations: d.hunt.trackLocations,
           });
           setTrackLocations(d.hunt.trackLocations || false);
+          setShowStandings(d.hunt.showStandings !== false);
           if (d.hunt.gameStartTime) {
             setGameStartTime(d.hunt.gameStartTime);
             setDurationMinutes(d.hunt.durationMinutes);
@@ -615,6 +619,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         countdownValue,
         connected,
         trackLocations,
+        showStandings,
         playerLocations,
         createHunt,
         joinHunt,

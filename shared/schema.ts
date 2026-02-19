@@ -20,6 +20,7 @@ export const hunts = pgTable("hunts", {
   gameEndTime: timestamp("game_end_time"),
   countdownStartTime: timestamp("countdown_start_time"),
   trackLocations: boolean("track_locations").notNull().default(false),
+  showStandings: boolean("show_standings").notNull().default(true),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
