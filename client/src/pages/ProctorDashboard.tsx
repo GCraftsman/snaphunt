@@ -774,12 +774,13 @@ export default function ProctorDashboard() {
                               <Input
                                 type="number"
                                 min={0}
-                                value={award?.count ?? 0}
+                                value={award?.count ?? ""}
                                 onChange={(e) => {
-                                  const count = Math.max(0, Number(e.target.value) || 0);
+                                  const raw = e.target.value;
+                                  const count = raw === "" ? 0 : Math.max(0, parseInt(raw, 10) || 0);
                                   setBonusAwards(prev => {
                                     const existing = prev.filter(a => a.bonusIndex !== bIdx);
-                                    return [...existing, { bonusIndex: bIdx, awarded: count > 0, count }];
+                                    return [...existing, { bonusIndex: bIdx, awarded: count > 0, count: raw === "" ? 0 : count }];
                                   });
                                 }}
                                 className="h-7 w-16 text-xs bg-transparent border-amber-400/20 text-amber-400"
@@ -971,8 +972,8 @@ export default function ProctorDashboard() {
                   <Input
                     type="number"
                     placeholder="Pts"
-                    value={newItemPoints}
-                    onChange={(e) => setNewItemPoints(Number(e.target.value))}
+                    value={newItemPoints || ""}
+                    onChange={(e) => setNewItemPoints(e.target.value === "" ? 0 : (parseInt(e.target.value, 10) || 0))}
                     className="w-24"
                     data-testid="input-new-item-points"
                   />
@@ -986,10 +987,10 @@ export default function ProctorDashboard() {
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             <Input
                               type="number"
-                              value={item.points}
+                              value={item.points || ""}
                               onChange={(e) => {
                                 const updated = [...customItems];
-                                updated[idx] = { ...item, points: Number(e.target.value) };
+                                updated[idx] = { ...item, points: e.target.value === "" ? 0 : (parseInt(e.target.value, 10) || 0) };
                                 setCustomItems(updated);
                               }}
                               className="w-16 h-8 text-sm font-mono text-primary font-bold text-right bg-transparent border-white/10 shrink-0"
@@ -1095,11 +1096,11 @@ export default function ProctorDashboard() {
                                 <span className="text-amber-400 text-xs">+</span>
                                 <Input
                                   type="number"
-                                  value={bonus.points}
+                                  value={bonus.points || ""}
                                   onChange={(e) => {
                                     const updated = [...customItems];
                                     const bonuses = [...item.bonuses];
-                                    bonuses[bIdx] = { ...bonus, points: Number(e.target.value) || 0 };
+                                    bonuses[bIdx] = { ...bonus, points: e.target.value === "" ? 0 : (parseInt(e.target.value, 10) || 0) };
                                     updated[idx] = { ...item, bonuses };
                                     setCustomItems(updated);
                                   }}
