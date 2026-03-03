@@ -104,7 +104,7 @@ interface GameContextType {
   showStandings: boolean;
   playerLocations: Map<string, LocationUpdate>;
 
-  createHunt: (items: { description: string; points: number; verificationMode?: string; mediaType?: string; videoLengthSeconds?: number; bonuses?: { points: number; type: string; description: string }[] }[], settings: GameSettings, teamNames?: string[], huntName?: string) => Promise<string | null>;
+  createHunt: (items: { description: string; points: number; verificationMode?: string; mediaType?: string; videoLengthSeconds?: number; bonuses?: { points: number; type: string; description: string }[] }[], settings: GameSettings, teamNames?: string[], huntName?: string, draft?: boolean) => Promise<string | null>;
   joinHunt: (code: string, name: string) => Promise<boolean>;
   joinTeam: (teamId: number) => void;
   lockTeams: () => void;
@@ -369,7 +369,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     itemList: { description: string; points: number; verificationMode?: string; mediaType?: string; videoLengthSeconds?: number; bonuses?: { points: number; type: string; description: string }[] }[],
     gameSettings: GameSettings,
     teamNames?: string[],
-    huntName?: string
+    huntName?: string,
+    draft?: boolean
   ): Promise<string | null> => {
     try {
       const res = await fetch("/api/hunts", {
@@ -381,10 +382,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           settings: gameSettings,
           teamNames,
           huntName,
+          draft,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create hunt");
+
+      if (draft) {
+        return data.hunt.id;
+      }
 
       const hId = data.hunt.id;
       setHuntId(hId);

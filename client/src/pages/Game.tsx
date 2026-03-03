@@ -651,7 +651,11 @@ export default function Game() {
                 {isSubmitting ? (
                   <div className="absolute inset-0 z-20 bg-black/80 flex flex-col items-center justify-center space-y-4">
                     <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                    <p className="text-primary font-bold animate-pulse" data-testid="text-analyzing">AI is analyzing your photo...</p>
+                    <p className="text-primary font-bold animate-pulse" data-testid="text-analyzing">
+                      {selectedItem?.verificationMode === "proctor" || selectedItem?.mediaType === "video"
+                        ? "Uploading for proctor review..."
+                        : "AI is analyzing your photo..."}
+                    </p>
                   </div>
                 ) : submitResult ? (
                   <div className="absolute inset-0 z-20 bg-black/80 flex flex-col items-center justify-center space-y-4 p-6">

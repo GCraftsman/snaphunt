@@ -145,11 +145,11 @@ export async function registerRoutes(
       const user = (req as any).user;
       const userId = user?.claims?.sub;
       const userName = user?.claims?.first_name || user?.claims?.email || "Proctor";
-      const { items, settings, teamNames, huntName } = req.body;
+      const { items, settings, teamNames, huntName, draft } = req.body;
 
       const hunt = await storage.createHunt({
         name: huntName || "Scavenger Hunt",
-        status: "lobby",
+        status: draft ? "draft" : "lobby",
         proctorUserId: userId,
         durationMinutes: settings.durationMinutes || 60,
         countdownSeconds: settings.countdownSeconds || 10,
@@ -245,6 +245,108 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting hunt:", error);
       res.status(500).json({ error: "Failed to delete hunt" });
+    }
+  });
+
+  app.post("/api/hunts/:id/open-lobby", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const userId = (req as any).user?.claims?.sub;
+      const hunt = await storage.getHunt(huntId);
+
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+      if (hunt.status !== "draft") return res.status(400).json({ error: "Hunt is not in draft status" });
+
+      await storage.updateHunt(huntId, { status: "lobby" });
+
+      const players = await storage.getPlayersByHunt(huntId);
+      const proctorPlayer = players.find((p: any) => p.isProctor);
+
+      if (proctorPlayer) {
+        res.json({ huntId, sessionToken: proctorPlayer.sessionToken, player: { id: proctorPlayer.id, name: proctorPlayer.name, teamId: null, isProctor: true } });
+      } else {
+        const userName = (req as any).user?.claims?.first_name || (req as any).user?.claims?.email || "Proctor";
+        const sessionToken = crypto.randomUUID();
+        const proctor = await storage.createPlayer({
+          huntId,
+          name: userName,
+          userId,
+          isProctor: true,
+          sessionToken,
+        });
+        res.json({ huntId, sessionToken, player: { id: proctor.id, name: proctor.name, teamId: null, isProctor: true } });
+      }
+    } catch (error) {
+      console.error("Error opening lobby:", error);
+      res.status(500).json({ error: "Failed to open lobby" });
+    }
+  });
+
+  app.put("/api/hunts/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const huntId = getParam(req.params, "id");
+      const userId = (req as any).user?.claims?.sub;
+      const hunt = await storage.getHunt(huntId);
+
+      if (!hunt) return res.status(404).json({ error: "Hunt not found" });
+      if (hunt.proctorUserId !== userId) return res.status(403).json({ error: "Not authorized" });
+      if (hunt.status !== "draft") return res.status(400).json({ error: "Can only edit draft hunts" });
+
+      const { items, settings, teamNames, huntName } = req.body;
+
+      await storage.updateHunt(huntId, {
+        name: huntName || hunt.name,
+        durationMinutes: settings?.durationMinutes || hunt.durationMinutes,
+        countdownSeconds: settings?.countdownSeconds || hunt.countdownSeconds,
+        teamCount: settings?.teamCount || hunt.teamCount,
+        trackLocations: settings?.trackLocations ?? hunt.trackLocations,
+        showStandings: settings?.showStandings ?? hunt.showStandings,
+      });
+
+      if (items && Array.isArray(items)) {
+        const existingItems = await storage.getItemsByHunt(huntId);
+        for (const item of existingItems) {
+          await storage.deleteItem(item.id);
+        }
+        for (let i = 0; i < items.length; i++) {
+          const mediaType = items[i].mediaType || "photo";
+          const bonuses = items[i].bonuses || [];
+          const hasBonuses = Array.isArray(bonuses) && bonuses.length > 0;
+          const verificationMode = hasBonuses || mediaType === "video" ? "proctor" : (items[i].verificationMode || "ai");
+          await storage.createItem({
+            huntId,
+            description: items[i].description,
+            points: items[i].points || 100,
+            sortOrder: i,
+            verificationMode,
+            mediaType,
+            videoLengthSeconds: items[i].videoLengthSeconds || 20,
+            bonuses,
+          });
+        }
+      }
+
+      if (teamNames && Array.isArray(teamNames)) {
+        const existingTeams = await storage.getTeamsByHunt(huntId);
+        const targetCount = settings?.teamCount || existingTeams.length;
+        for (const team of existingTeams) {
+          await storage.deleteTeam(team.id);
+        }
+        for (let i = 0; i < targetCount; i++) {
+          await storage.createTeam({
+            huntId,
+            name: teamNames[i] || `Team ${i + 1}`,
+            color: TEAM_COLORS[i % TEAM_COLORS.length],
+            score: 0,
+          });
+        }
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating hunt:", error);
+      res.status(500).json({ error: "Failed to update hunt" });
     }
   });
 
@@ -640,14 +742,15 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
           },
         });
       } else {
-        const team = await storage.updateTeamScore(player.teamId, -item.points);
+        const totalToSubtract = item.points + (submission.bonusPoints || 0);
+        const team = await storage.updateTeamScore(player.teamId, -totalToSubtract);
         newScore = team.score;
         broadcastToHunt(huntId, {
           type: "submission_redo",
           data: {
             itemId,
             teamId: player.teamId,
-            points: item.points,
+            points: totalToSubtract,
             newScore: team.score,
           },
         });
@@ -698,7 +801,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
                 bonusDetails.push({ index: i, description: bonus.description, points: bonus.points, count, total: pts });
               }
             } else {
-              if (award.checked) {
+              if (award.awarded) {
                 totalBonusPoints += bonus.points;
                 bonusDetails.push({ index: i, description: bonus.description, points: bonus.points, total: bonus.points });
               }

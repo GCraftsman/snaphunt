@@ -4,7 +4,9 @@
 
 SnapHunt is a real-time multiplayer photo and video scavenger hunt game. A proctor creates a hunt with configurable teams, items, and duration. Players join via a 6-character game code, pick teams in a lobby, then compete to photograph or record video of scavenger hunt items. Photos are verified using OpenAI's vision API or manually by the proctor (configurable per item). Video submissions are always proctor-reviewed. The game uses WebSockets for real-time state synchronization across all connected clients.
 
-**Core flow:** Proctor creates hunt → Players join via code → Teams are formed in lobby → Countdown → Active game with photo/video submissions → AI or proctor verification → Scoring → Game over with leaderboard.
+**Core flow:** Proctor creates hunt (saved as draft) → Proctor can edit draft or open lobby → Players join via code → Teams are formed in lobby → Countdown → Active game with photo/video submissions → AI or proctor verification → Scoring → Game over with leaderboard.
+
+**Hunt lifecycle:** Hunts are created in "draft" status. Draft hunts appear in the proctor dashboard where they can be edited or opened for lobby. "Open Lobby" transitions the hunt to "lobby" status and connects the proctor. The full status flow is: draft → lobby → countdown → active → finished.
 
 **Verification modes:** Each scavenger item can be set to "AI" (default, uses OpenAI vision) or "Proctor" (manual review). Proctor-verified items create pending submissions that appear in the proctor's review queue. The proctor can approve (awards points) or reject (with feedback shown to the player). Video items are always proctor-reviewed.
 

@@ -39,6 +39,9 @@ export interface IStorage {
   createItem(data: InsertScavengerItem): Promise<ScavengerItem>;
   getItemsByHunt(huntId: string): Promise<ScavengerItem[]>;
   getItem(id: number): Promise<ScavengerItem | undefined>;
+  deleteItem(id: number): Promise<void>;
+
+  deleteTeam(id: number): Promise<void>;
 
   createSubmission(data: InsertSubmission): Promise<Submission>;
   getSubmissionsByHunt(huntId: string): Promise<Submission[]>;
@@ -159,6 +162,14 @@ export class DatabaseStorage implements IStorage {
   async getItem(id: number): Promise<ScavengerItem | undefined> {
     const [item] = await db.select().from(scavengerItems).where(eq(scavengerItems.id, id));
     return item;
+  }
+
+  async deleteItem(id: number): Promise<void> {
+    await db.delete(scavengerItems).where(eq(scavengerItems.id, id));
+  }
+
+  async deleteTeam(id: number): Promise<void> {
+    await db.delete(teams).where(eq(teams.id, id));
   }
 
   async createSubmission(data: InsertSubmission): Promise<Submission> {

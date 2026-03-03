@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight, Video, Loader2, MapPin, Map, Star } from "lucide-react";
+import { Trash2, Plus, QrCode as QrIcon, Clock, Users, Play, Lock, ArrowLeft, LogIn, History, StopCircle, Trophy, Camera, LogOut, Bot, Eye, Check, X, Timer, ChevronRight, Video, Loader2, MapPin, Map, Star, FileText, Pencil } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
 import { LiveMap } from "@/components/LiveMap";
@@ -65,7 +65,7 @@ interface HuntHistoryItem {
   teams: { id: number; name: string; score: number; color: string }[];
 }
 
-function ProctorHome({ onCreateNew, onCloneHunt, isCloning }: { onCreateNew: () => void; onCloneHunt: (huntId: string) => void; isCloning?: boolean }) {
+function ProctorHome({ onCreateNew, onCloneHunt, isCloning, onEditHunt, onOpenLobby }: { onCreateNew: () => void; onCloneHunt: (huntId: string) => void; isCloning?: boolean; onEditHunt: (huntId: string) => void; onOpenLobby: (huntId: string) => void }) {
   const { user, logout } = useAuth();
   const { setSessionFromStorage } = useGame();
   const [_, setLocation] = useLocation();
@@ -100,6 +100,7 @@ function ProctorHome({ onCreateNew, onCloneHunt, isCloning }: { onCreateNew: () 
     setDeletingHuntId(null);
   };
 
+  const draftHunts = history?.proctored.filter(h => h.status === "draft") || [];
   const activeHunts = history?.proctored.filter(h => ["lobby", "active", "countdown"].includes(h.status)) || [];
   const pastHunts = history?.proctored.filter(h => h.status === "finished") || [];
 
@@ -173,6 +174,58 @@ function ProctorHome({ onCreateNew, onCloneHunt, isCloning }: { onCreateNew: () 
             </CardContent>
           </Card>
         </div>
+
+        {draftHunts.length > 0 && (
+          <div className="space-y-4">
+            <h3 className="text-xl font-bold flex items-center gap-2">
+              <FileText className="w-5 h-5 text-amber-400" /> Draft Hunts
+            </h3>
+            <div className="grid gap-3">
+              {draftHunts.map(hunt => (
+                <Card key={hunt.id} className="border-amber-500/30 bg-amber-500/5 hover:border-amber-500/50 transition-colors" data-testid={`card-draft-hunt-${hunt.id}`}>
+                  <CardContent className="py-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-bold">{hunt.name}</h4>
+                        <p className="text-sm text-muted-foreground">
+                          Code: <span className="font-mono text-primary">{hunt.code}</span> &middot; {hunt.durationMinutes} min &middot; {hunt.teams.length} teams
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                      <Button
+                        size="sm"
+                        className="bg-green-500 hover:bg-green-600 text-black font-bold"
+                        onClick={() => onOpenLobby(hunt.id)}
+                        data-testid={`button-open-lobby-${hunt.id}`}
+                      >
+                        <Play className="w-3 h-3 mr-1" /> Open Lobby
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs"
+                        onClick={() => onEditHunt(hunt.id)}
+                        data-testid={`button-edit-${hunt.id}`}
+                      >
+                        <Pencil className="w-3 h-3 mr-1" /> Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                        onClick={() => setDeletingHuntId(hunt.id)}
+                        data-testid={`button-delete-draft-${hunt.id}`}
+                      >
+                        <Trash2 className="w-3 h-3 mr-1" /> Delete
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
 
         {activeHunts.length > 0 && (
           <div className="space-y-4">
@@ -292,7 +345,7 @@ export default function ProctorDashboard() {
     createHunt, status, players, teams, lockTeams, startCountdown, stopGame,
     huntCode, isLocked, huntId, currentUser, items, timeRemaining, completedSubmissions,
     pendingSubmissions, rejectedSubmissions, reviewSubmission, resetGame, countdownValue,
-    trackLocations: gameTrackLocations,
+    trackLocations: gameTrackLocations, setSessionFromStorage,
   } = useGame();
   const [_, setLocation] = useLocation();
   const [showSetup, setShowSetup] = useState(false);
@@ -324,6 +377,48 @@ export default function ProctorDashboard() {
     const names = Array.from({ length: teamCount }, (_, i) => teamNames[i] || `Team ${i + 1}`);
     setTeamNames(names);
   }, [teamCount]);
+
+  const handleEditHunt = async (huntIdToEdit: string) => {
+    try {
+      const res = await fetch(`/api/hunts/${huntIdToEdit}/details`, { credentials: "include" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setHuntName(data.hunt.name || "Scavenger Hunt");
+      setDuration(data.hunt.durationMinutes || 60);
+      setCountdown(data.hunt.countdownSeconds || 10);
+      setTrackLocations(data.hunt.trackLocations || false);
+      setShowStandingsToPlayers(data.hunt.showStandings !== false);
+      setCustomItems(data.items);
+      const editTeamCount = data.teamNames.length || 4;
+      setTeamCount(editTeamCount);
+      setTeamNames(data.teamNames);
+      setEditingHuntId(huntIdToEdit);
+      setShowSetup(true);
+    } catch (err) {
+      console.error("Failed to load hunt for editing:", err);
+    }
+  };
+
+  const handleOpenLobby = async (huntIdToOpen: string) => {
+    try {
+      const res = await fetch(`/api/hunts/${huntIdToOpen}/open-lobby`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+
+      const session = {
+        huntId: data.huntId,
+        sessionToken: data.sessionToken,
+        player: data.player,
+      };
+      sessionStorage.setItem("snaphunt_session", JSON.stringify(session));
+      setSessionFromStorage();
+    } catch (err) {
+      console.error("Failed to open lobby:", err);
+    }
+  };
 
   const handleCloneHunt = async (huntIdToClone: string) => {
     setCloningHunt(true);
@@ -368,16 +463,46 @@ export default function ProctorDashboard() {
     setCustomItems(customItems.filter((_, i) => i !== idx));
   };
 
+  const [editingHuntId, setEditingHuntId] = useState<string | null>(null);
+
   const handleCreateHunt = async () => {
     if (customItems.length === 0) return;
     setCreating(true);
-    await createHunt(customItems, {
-      durationMinutes: duration,
-      teamCount,
-      countdownSeconds: countdown,
-      trackLocations,
-      showStandings: showStandingsToPlayers,
-    }, teamNames, huntName);
+
+    if (editingHuntId) {
+      try {
+        const res = await fetch(`/api/hunts/${editingHuntId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            items: customItems,
+            settings: {
+              durationMinutes: duration,
+              teamCount,
+              countdownSeconds: countdown,
+              trackLocations,
+              showStandings: showStandingsToPlayers,
+            },
+            teamNames,
+            huntName,
+          }),
+        });
+        if (!res.ok) throw new Error("Failed to update hunt");
+      } catch (err) {
+        console.error("Failed to update hunt:", err);
+      }
+      setEditingHuntId(null);
+    } else {
+      await createHunt(customItems, {
+        durationMinutes: duration,
+        teamCount,
+        countdownSeconds: countdown,
+        trackLocations,
+        showStandings: showStandingsToPlayers,
+      }, teamNames, huntName, true);
+    }
+
     setCreating(false);
     setShowSetup(false);
   };
@@ -391,7 +516,7 @@ export default function ProctorDashboard() {
   const joinUrl = huntCode ? `${window.location.origin}?code=${huntCode}` : window.location.origin;
 
   if (!showSetup && !huntId) {
-    return <ProctorHome onCreateNew={() => setShowSetup(true)} onCloneHunt={handleCloneHunt} isCloning={cloningHunt} />;
+    return <ProctorHome onCreateNew={() => { setEditingHuntId(null); setShowSetup(true); }} onCloneHunt={handleCloneHunt} isCloning={cloningHunt} onEditHunt={handleEditHunt} onOpenLobby={handleOpenLobby} />;
   }
 
   if (huntId && status !== "setup") {
@@ -1104,7 +1229,7 @@ export default function ProctorDashboard() {
                                     updated[idx] = { ...item, bonuses };
                                     setCustomItems(updated);
                                   }}
-                                  className="h-6 w-14 text-xs bg-transparent border-amber-400/20 text-amber-400"
+                                  className="h-6 w-20 text-xs bg-transparent border-amber-400/20 text-amber-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                   data-testid={`input-bonus-points-${idx}-${bIdx}`}
                                 />
                                 <Select
@@ -1174,7 +1299,7 @@ export default function ProctorDashboard() {
             className="w-full md:w-auto text-lg px-8 font-bold bg-gradient-to-r from-primary to-secondary hover:opacity-90"
             data-testid="button-create-hunt"
           >
-            {creating ? "Creating..." : "Generate Hunt & Open Lobby"}
+            {creating ? "Saving..." : editingHuntId ? "Save Changes" : "Generate Hunt"}
           </Button>
         </div>
       </motion.div>
