@@ -372,6 +372,7 @@ export default function ProctorDashboard() {
   const [showStandingsToPlayers, setShowStandingsToPlayers] = useState(true);
   const [showQrPopover, setShowQrPopover] = useState(false);
   const [proctorView, setProctorView] = useState<"game" | "replay">("game");
+  const [editingHuntId, setEditingHuntId] = useState<string | null>(null);
 
   useEffect(() => {
     const names = Array.from({ length: teamCount }, (_, i) => teamNames[i] || `Team ${i + 1}`);
@@ -462,8 +463,6 @@ export default function ProctorDashboard() {
   const handleRemoveItem = (idx: number) => {
     setCustomItems(customItems.filter((_, i) => i !== idx));
   };
-
-  const [editingHuntId, setEditingHuntId] = useState<string | null>(null);
 
   const handleCreateHunt = async () => {
     if (customItems.length === 0) return;
