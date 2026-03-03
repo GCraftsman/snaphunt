@@ -938,7 +938,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
       const items = await storage.getItemsByHunt(huntId);
 
       let filteredPings = pings;
-      let filteredSubs = subs.filter(s => s.verified);
+      let filteredSubs = subs.filter(s => s.verified || s.status === "approved" || s.status === "pending");
       let filteredPlayers = playersData.filter(p => !p.isProctor);
       let filteredTeams = teamsData;
 
@@ -951,6 +951,7 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
 
       const verifiedSubs = filteredSubs.map(s => {
         const item = items.find(i => i.id === s.itemId);
+        const isApproved = s.verified || s.status === "approved";
         return {
           itemId: s.itemId,
           teamId: s.teamId,
@@ -959,10 +960,11 @@ Respond ONLY with a JSON object: {"match": true, "reason": "brief explanation"} 
           longitude: s.longitude,
           createdAt: s.createdAt,
           description: item?.description || "",
-          points: item?.points || 0,
-          bonusPoints: s.bonusPoints || 0,
+          points: isApproved ? (item?.points || 0) : 0,
+          bonusPoints: isApproved ? (s.bonusPoints || 0) : 0,
           photoData: s.photoData,
           mediaType: s.mediaType || "photo",
+          status: s.status || (s.verified ? "approved" : "pending"),
         };
       });
 

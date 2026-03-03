@@ -12,7 +12,9 @@ SnapHunt is a real-time multiplayer photo and video scavenger hunt game. A proct
 
 **Video submissions:** Items can be set to "photo" or "video" media type during hunt setup. Video items have configurable recording length (10-60 seconds, default 20s, in 10s intervals). Players record using MediaRecorder API with real-time countdown timer and progress bar; recording auto-stops at the time limit. Videos are recorded at lower quality (500kbps, 640x480) for faster upload. After recording and confirming, players are returned to the list immediately while the video uploads in the background. An "uploading" status is shown on the item until complete. Videos are stored as base64 data URIs and stream to the proctor during review.
 
-**Location tracking:** Optional feature toggled during hunt setup. When enabled, player devices send GPS pings every 30 seconds via WebSocket during active gameplay. The proctor sees a live Leaflet map with team-colored player markers during the game. After the game ends, a replay view shows animated player trails with a timeline scrubber (play/pause/speed controls). Submissions with lat/lng are shown as star markers on the map. Data stored in `location_pings` table; submissions can optionally include lat/lng coordinates.
+**Camera zoom:** On devices that support it (most mobile phones), a zoom slider appears at the bottom of the camera preview. Uses the MediaTrack API's zoom capability — detected automatically, hidden on devices without zoom support. Zoom state resets when the camera dialog closes.
+
+**Location tracking:** Optional feature toggled during hunt setup. When enabled, player devices send GPS pings every 30 seconds via WebSocket during active gameplay. The proctor sees a live Leaflet map with team-colored player markers during the game. After the game ends, a replay view shows animated player trails with a timeline scrubber (play/pause/speed controls). Submissions with lat/lng are shown as star markers on the map at the time they were submitted (not when proctor approved). Data stored in `location_pings` table; submissions can optionally include lat/lng coordinates.
 
 ## User Preferences
 

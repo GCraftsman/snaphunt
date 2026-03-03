@@ -11,7 +11,8 @@ import {
   AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
   AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot, RotateCcw, AlertTriangle, Video, Loader2, Square, Star } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
+import { Camera, X, Check, Timer, UploadCloud, ChevronRight, ArrowLeft, Clock, Eye, Bot, RotateCcw, AlertTriangle, Video, Loader2, Square, Star, ZoomIn } from "lucide-react";
 import { motion } from "framer-motion";
 import Confetti from "react-confetti";
 import { useLocation } from "wouter";
@@ -50,6 +51,9 @@ export default function Game() {
   const videoPreviewRef = useRef<HTMLVideoElement>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [zoomRange, setZoomRange] = useState<{ min: number; max: number; step: number } | null>(null);
+
   const myTeam = teams.find(t => t.id === currentUser?.teamId);
 
   const isVideoItem = selectedItem?.mediaType === "video";
@@ -70,6 +74,49 @@ export default function Game() {
       if (recordedUrl) URL.revokeObjectURL(recordedUrl);
     };
   }, []);
+
+  const checkZoomCapability = useCallback(() => {
+    try {
+      const video = webcamRef.current?.video;
+      if (!video || !video.srcObject) return;
+      const stream = video.srcObject as MediaStream;
+      const track = stream.getVideoTracks()[0];
+      if (!track) return;
+      const capabilities = track.getCapabilities?.();
+      if (capabilities && (capabilities as any).zoom) {
+        const z = (capabilities as any).zoom;
+        setZoomRange({ min: z.min, max: z.max, step: z.step || 0.1 });
+        const settings = track.getSettings?.();
+        if (settings && (settings as any).zoom) {
+          setZoomLevel((settings as any).zoom);
+        } else {
+          setZoomLevel(z.min);
+        }
+      } else {
+        setZoomRange(null);
+      }
+    } catch {
+      setZoomRange(null);
+    }
+  }, []);
+
+  const applyZoom = useCallback((value: number) => {
+    try {
+      const video = webcamRef.current?.video;
+      if (!video || !video.srcObject) return;
+      const stream = video.srcObject as MediaStream;
+      const track = stream.getVideoTracks()[0];
+      if (!track) return;
+      track.applyConstraints({ advanced: [{ zoom: value } as any] } as any);
+      setZoomLevel(value);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (!selectedItem || capturedImage || isSubmitting || submitResult) return;
+    const timer = setTimeout(checkZoomCapability, 500);
+    return () => clearTimeout(timer);
+  }, [selectedItem, capturedImage, isSubmitting, submitResult, checkZoomCapability]);
 
   const [cameraErrorMsg, setCameraErrorMsg] = useState<string | null>(null);
   const pendingVideoItemRef = useRef<any>(null);
@@ -312,6 +359,8 @@ export default function Game() {
     setVideoError(null);
     setCameraReady(false);
     setRequestingCamera(false);
+    setZoomLevel(1);
+    setZoomRange(null);
     if (recordedUrl) {
       URL.revokeObjectURL(recordedUrl);
       setRecordedUrl(null);
@@ -704,6 +753,21 @@ export default function Game() {
                       <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-primary -mb-0.5 -ml-0.5" />
                       <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-primary -mb-0.5 -mr-0.5" />
                     </div>
+                  </div>
+                )}
+                {!capturedImage && !isSubmitting && !submitResult && zoomRange && zoomRange.max > zoomRange.min && (
+                  <div className="absolute bottom-2 left-4 right-4 flex items-center gap-2 bg-black/60 rounded-lg px-3 py-2 z-10" data-testid="zoom-slider-container">
+                    <ZoomIn className="w-4 h-4 text-white/70 shrink-0" />
+                    <Slider
+                      value={[zoomLevel]}
+                      onValueChange={(v) => applyZoom(v[0])}
+                      min={zoomRange.min}
+                      max={zoomRange.max}
+                      step={zoomRange.step}
+                      className="flex-1"
+                      data-testid="slider-camera-zoom"
+                    />
+                    <span className="text-xs text-white/70 font-mono w-8 text-right" data-testid="text-zoom-level">{zoomLevel.toFixed(1)}x</span>
                   </div>
                 )}
               </div>
