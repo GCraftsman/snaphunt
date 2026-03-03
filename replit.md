@@ -70,6 +70,14 @@ Preferred communication style: Simple, everyday language.
 - **Production build:** Custom `script/build.ts` runs Vite build for client, then esbuild for server (bundling key deps to reduce cold start syscalls). Output goes to `dist/`.
 - **Path aliases:** `@/` maps to `client/src/`, `@shared/` maps to `shared/`
 
+### Capacitor (Native Mobile)
+- **Config:** `capacitor.config.ts` — app ID `com.snaphunt.app`, web dir `dist/public`
+- **Packages:** `@capacitor/core`, `@capacitor/cli`, `@capacitor/camera`, `@capacitor/geolocation`, `@capacitor/haptics`, `@capacitor/splash-screen`, `@capacitor/status-bar`
+- **Platform utility:** `client/src/lib/capacitor.ts` — `isNativePlatform()` and `getPlatform()` helpers for detecting native vs web runtime
+- **Build for native:** Run `npm run build` first to generate `dist/public/`, then `npx cap sync` to copy web assets into native projects
+- **Native projects:** Not yet added. Run `npx cap add ios` and `npx cap add android` on a machine with Xcode / Android Studio to generate the native project folders
+- **Architecture:** Web app runs unchanged in the browser. Capacitor wraps the same built output in a native WebView for app store distribution. Capacitor plugins can optionally replace browser APIs (camera, GPS) for better native behavior.
+
 ### Replit Integrations (server/replit_integrations/)
 Pre-built modules for AI features:
 - **chat/** - Conversation storage and chat API routes using OpenAI
