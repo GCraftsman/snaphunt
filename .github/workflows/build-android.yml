@@ -55,7 +55,7 @@ jobs:
         run: |
           echo -n "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
 
-      - name: Build release APK
+      - name: Build release AAB
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -63,15 +63,15 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease \
+          ./gradlew bundleRelease \
             -Pandroid.injected.signing.store.file=$(pwd)/app/release.keystore \
             -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
             -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
 
-      - name: Upload APK artifact
+      - name: Upload AAB artifact
         uses: actions/upload-artifact@v4
         with:
           name: SnapHunt-Android-${{ github.sha }}
-          path: android/app/build/outputs/apk/release/*.apk
+          path: android/app/build/outputs/bundle/release/*.aab
           retention-days: 30
