@@ -84,7 +84,7 @@ export class DatabaseStorage implements IStorage {
 
   async getHuntsByPlayer(userId: string): Promise<Hunt[]> {
     const playerRows = await db.select().from(players).where(eq(players.userId, userId));
-    const huntIds = [...new Set(playerRows.map(p => p.huntId))];
+    const huntIds = Array.from(new Set(playerRows.map(p => p.huntId)));
     if (huntIds.length === 0) return [];
     const results: Hunt[] = [];
     for (const hId of huntIds) {
