@@ -28,23 +28,26 @@ jobs:
           java-version: "17"
           distribution: "temurin"
 
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Install dependencies
         run: npm ci
+
+      - name: Install Capacitor Android platform
+        run: npm install @capacitor/android@^8.0.0 --no-save
 
       - name: Build web assets
         run: npm run build
 
-      - name: Install Capacitor CLI
-        run: npm install -g @capacitor/cli
-
       - name: Add Android platform (if not present)
         run: |
           if [ ! -d "android" ]; then
-            npx cap add android
+            ./node_modules/.bin/cap add android
           fi
 
       - name: Sync Capacitor
-        run: npx cap sync android
+        run: ./node_modules/.bin/cap sync android
 
       - name: Decode keystore
         env:
@@ -52,7 +55,7 @@ jobs:
         run: |
           echo -n "$KEYSTORE_BASE64" | base64 --decode > android/app/release.keystore
 
-      - name: Build release AAB
+      - name: Build release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -60,15 +63,15 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew bundleRelease \
+          ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file=$(pwd)/app/release.keystore \
             -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
             -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
             -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
 
-      - name: Upload AAB artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: SnapHunt-Android-${{ github.sha }}
-          path: android/app/build/outputs/bundle/release/*.aab
+          path: android/app/build/outputs/apk/release/*.apk
           retention-days: 30
